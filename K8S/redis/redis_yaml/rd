@@ -1,0 +1,11 @@
+kubectl delete -f redis-deployment.yaml
+kubectl delete -f redis-config.yaml
+
+kubectl delete -f r-pvc.yaml
+kubectl delete -f r-pv.yaml
+kubectl delete -f r-sc.yaml
+
+
+sleep 2
+echo "============== kubectl get pod,svc,pv,pvc,sc -o wide ================="
+kubectl get pod,svc,pv,pvc,sc -o wide

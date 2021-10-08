@@ -1,0 +1,11 @@
+kubectl apply -f r-sc.yaml
+kubectl apply -f r-pv.yaml
+kubectl apply -f r-pvc.yaml
+
+kubectl apply -f redis-config.yaml
+kubectl apply -f redis-deployment.yaml
+
+
+sleep 2
+echo "============== kubectl get ns,cm,pod,svc,pv,pvc,sc -o wide ================="
+kubectl get ns,cm,pod,svc,pv,pvc,sc -o wide
