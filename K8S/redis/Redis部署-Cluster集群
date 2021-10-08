@@ -1,0 +1,1083 @@
+部署 Redis-Cluster集群
+
+本篇将介绍如何在K8S上部署Redis集群。注意，这里所说的Redis 集群，指Redis Cluster而非Sentinel模式集群。
+下图为Redis集群的架构图，每个Master都可以拥有多个Slave。当Master下线后，Redis集群会从多个Slave中选举出一个新的Master作为替代，而旧Master重新上线后变成新Master的Slave。
+
+
+其包含了两种部署Redis集群的方式：
+StatefulSet
+Service&Deployment
+两种方式各有优劣，对于像Redis、Mongodb、Zookeeper等有状态的服务，使用StatefulSet是首选方式。本文将主要介绍如何使用StatefulSet进行Redis集群的部署。
+
+StatefulSet的概念非常重要，简单来说，其就是为了解决Pod重启、迁移后，Pod的IP、主机名等网络标识会改变而带来的问题。IP变化对于有状态的服务是难以接受的，如在Zookeeper集群的配置文件中，每个ZK节点都会记录其他节点的地址信息
+server.1=172.16.201.134:2888:3888
+server.2=172.16.201.135:2888:3888
+server.3=172.16.201.136:2888:3888
+
+但若某个ZK节点的Pod重启后改变了IP，那么就会导致该节点脱离集群，而如果该配置文件中不使用IP而使用IP对应的域名，则可避免该问题：
+server.1=zk-node1:2888:3888
+server.2=zk-node2:2888:3888
+server.3=zk-node3:2888:3888
+
+也即是说，对于有状态服务，我们最好使用固定的网络标识（如域名信息）来标记节点，当然这也需要应用程序的支持（如Zookeeper就支持在配置文件中写入主机域名）。
+
+StatefulSet基于Headless Service（即没有Cluster IP的Service）为Pod实现了稳定的网络标志（包括Pod的hostname和DNS Records），在Pod重新调度后也保持不变。同时，结合PV/PVC，StatefulSet可以实现稳定的持久化存储，就算Pod重新调度后，还是能访问到原先的持久化数据。
+
+下图为使用StatefulSet部署Redis的架构，无论是Master还是Slave，都作为StatefulSet的一个副本，并且数据通过PV进行持久化，对外暴露为一个Service，接受客户端请求。
+
+本文参考项目的README中，简要介绍了基于StatefulSet的Redis创建步骤：
+创建NFS存储
+创建PV
+创建Configmap
+创建Redis StatefulSet
+创建SVC
+初始化Redis集群
+这里，我们将参考如上步骤，实践操作并详细介绍Redis集群的部署过程。文中会涉及到很多K8S的概念，希望大家能提前了解学习。
+
+
+
+
+###1、PV创建,NFS存储创建
+
+####1)、创建NFS
+[root@master-1 redis]# mkdir -p /root/redis-cluster/pv1
+[root@master-1 redis]# mkdir -p /root/redis-cluster/pv2
+[root@master-1 redis]# mkdir -p /root/redis-cluster/pv3
+[root@master-1 redis]# mkdir -p /root/redis-cluster/pv4
+[root@master-1 redis]# mkdir -p /root/redis-cluster/pv5
+[root@master-1 redis]# mkdir -p /root/redis-cluster/pv6
+
+其他方法：
+[root@master-1 redis]# mkdir -p /root/redis-cluster/pv{1..6}
+
+[root@master-1 redis]# vim /etc/exports
+/root/redis-cluster/pv1 *(rw,sync,no_subtree_check,no_root_squash)
+/root/redis-cluster/pv2 *(rw,sync,no_subtree_check,no_root_squash)
+/root/redis-cluster/pv3 *(rw,sync,no_subtree_check,no_root_squash)
+/root/redis-cluster/pv4 *(rw,sync,no_subtree_check,no_root_squash)
+/root/redis-cluster/pv5 *(rw,sync,no_subtree_check,no_root_squash)
+/root/redis-cluster/pv6 *(rw,sync,no_subtree_check,no_root_squash)
+
+
+######配置生效
+[root@master-1 mysql]# exportfs -r
+######查看生效
+[root@master-1 redis]# exportfs
+/root/nfs_data  <world>
+/root/web1      <world>
+/root/redis-sentinel/0 <world>
+/root/redis-sentinel/1 <world>
+/root/redis-sentinel/2 <world>
+/root/redis-cluster/pv1 <world>
+/root/redis-cluster/pv2 <world>
+/root/redis-cluster/pv3 <world>
+/root/redis-cluster/pv4 <world>
+/root/redis-cluster/pv5 <world>
+/root/redis-cluster/pv6 <world>
+
+[root@node-1 ~]# mkdir -p /root/redis-cluster/pv1
+[root@node-1 ~]# mkdir -p /root/redis-cluster/pv2
+[root@node-1 ~]# mkdir -p /root/redis-cluster/pv3
+[root@node-1 ~]# mkdir -p /root/redis-cluster/pv4
+[root@node-1 ~]# mkdir -p /root/redis-cluster/pv5
+[root@node-1 ~]# mkdir -p /root/redis-cluster/pv6
+[root@node-1 ~]# chmod -R 777 redis-cluster/
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv1  /root/redis-cluster/pv1
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv2  /root/redis-cluster/pv2
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv3  /root/redis-cluster/pv3
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv4  /root/redis-cluster/pv4
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv5  /root/redis-cluster/pv5
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv6  /root/redis-cluster/pv6
+
+
+
+[root@node-2 ~]# mkdir -p /root/redis-cluster/pv1
+[root@node-2 ~]# mkdir -p /root/redis-cluster/pv2
+[root@node-2 ~]# mkdir -p /root/redis-cluster/pv3
+[root@node-2 ~]# mkdir -p /root/redis-cluster/pv4
+[root@node-2 ~]# mkdir -p /root/redis-cluster/pv5
+[root@node-2 ~]# mkdir -p /root/redis-cluster/pv6
+[root@node-2 ~]# chmod -R 777 redis-cluster/
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv1  /root/redis-cluster/pv1
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv2  /root/redis-cluster/pv2
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv3  /root/redis-cluster/pv3
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv4  /root/redis-cluster/pv4
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv5  /root/redis-cluster/pv5
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/redis-cluster/pv6  /root/redis-cluster/pv6
+
+
+
+umount -t nfs 172.16.201.134:/root/redis-cluster/pv1
+
+
+
+[root@node-1 ~]# df -h|grep 172.16.201.134
+172.16.201.134:/root/web1                50G  3.5G   47G   7% /root/web1
+172.16.201.134:/root/nfs_data            50G  3.5G   47G   7% /root/nfs_data
+172.16.201.134:/root/redis-sentinel/0    50G  3.5G   47G   7% /root/redis-sentinel/0
+172.16.201.134:/root/redis-sentinel/1    50G  3.5G   47G   7% /root/redis-sentinel/1
+172.16.201.134:/root/redis-sentinel/2    50G  3.5G   47G   7% /root/redis-sentinel/2
+172.16.201.134:/root/redis-sentinel/0    50G  3.5G   47G   7% /var/lib/kubelet/pods/1044079a-3090-4189-83e7-b1496f7bae63/volumes/kubernetes.io~nfs/pv-redis-sentinel-0
+172.16.201.134:/root/redis-sentinel/2    50G  3.5G   47G   7% /var/lib/kubelet/pods/5472358e-c6b7-4ea3-8b60-5435f2e9136b/volumes/kubernetes.io~nfs/pv-redis-sentinel-2
+172.16.201.134:/root/redis-cluster/pv1   50G  3.5G   47G   7% /root/redis-cluster/pv1
+172.16.201.134:/root/redis-cluster/pv2   50G  3.5G   47G   7% /root/redis-cluster/pv2
+172.16.201.134:/root/redis-cluster/pv3   50G  3.5G   47G   7% /root/redis-cluster/pv3
+172.16.201.134:/root/redis-cluster/pv4   50G  3.5G   47G   7% /root/redis-cluster/pv4
+172.16.201.134:/root/redis-cluster/pv5   50G  3.5G   47G   7% /root/redis-cluster/pv5
+172.16.201.134:/root/redis-cluster/pv6   50G  3.5G   47G   7% /root/redis-cluster/pv6
+
+
+[root@node-2 ~]#  df -h|grep 172.16.201.134
+172.16.201.134:/root/nfs_data            50G  3.5G   47G   7% /root/nfs_data
+172.16.201.134:/root/web1                50G  3.5G   47G   7% /root/web1
+172.16.201.134:/root/redis-sentinel/0    50G  3.5G   47G   7% /root/redis-sentinel/0
+172.16.201.134:/root/redis-sentinel/1    50G  3.5G   47G   7% /root/redis-sentinel/1
+172.16.201.134:/root/redis-sentinel/2    50G  3.5G   47G   7% /root/redis-sentinel/2
+172.16.201.134:/root/redis-sentinel/1    50G  3.5G   47G   7% /var/lib/kubelet/pods/86129264-759a-41e2-aa96-fed0c6ac7b85/volumes/kubernetes.io~nfs/pv-redis-sentinel-1
+172.16.201.134:/root/redis-cluster/pv1   50G  3.5G   47G   7% /root/redis-cluster/pv1
+172.16.201.134:/root/redis-cluster/pv2   50G  3.5G   47G   7% /root/redis-cluster/pv2
+172.16.201.134:/root/redis-cluster/pv3   50G  3.5G   47G   7% /root/redis-cluster/pv3
+172.16.201.134:/root/redis-cluster/pv4   50G  3.5G   47G   7% /root/redis-cluster/pv4
+172.16.201.134:/root/redis-cluster/pv5   50G  3.5G   47G   7% /root/redis-cluster/pv5
+172.16.201.134:/root/redis-cluster/pv6   50G  3.5G   47G   7% /root/redis-cluster/pv6
+[root@node-2 ~]# 
+
+
+####2)、创建PV
+[root@master-1 cluster]# vim redis-pv.yml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: redis-pv1
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Recycle
+  storageClassName: "redis-cluster"
+  nfs:
+    path: /root/redis-cluster/pv1
+    server: 172.16.201.134
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: redis-pv2
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Recycle
+  storageClassName: "redis-cluster"
+  nfs:
+    path: /root/redis-cluster/pv2
+    server: 172.16.201.134
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: redis-pv3
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Recycle
+  storageClassName: "redis-cluster"
+  nfs:
+    path: /root/redis-cluster/pv3
+    server: 172.16.201.134
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: redis-pv4
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Recycle
+  storageClassName: "redis-cluster"
+  nfs:
+    path: /root/redis-cluster/pv4
+    server: 172.16.201.134
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: redis-pv5
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Recycle
+  storageClassName: "redis-cluster"
+  nfs:
+    path: /root/redis-cluster/pv5
+    server: 172.16.201.134
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: redis-pv6
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Recycle
+  storageClassName: "redis-cluster"
+  nfs:
+    path: /root/redis-cluster/pv6
+    server: 172.16.201.134
+
+
+
+[root@master-1 cluster]#  kubectl create -f  redis-pv.yml
+persistentvolume/redis-pv1 created
+persistentvolume/redis-pv2 created
+persistentvolume/redis-pv3 created
+persistentvolume/redis-pv4 created
+persistentvolume/redis-pv5 created
+persistentvolume/redis-pv6 created
+
+
+######Pv都是Available状态：
+[root@master-1 cluster]# kubectl get pv
+NAME                  CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM                                                                     STORAGECLASS                   REASON   AGE
+pv-redis-sentinel-0   1Gi        RWX            Recycle          Bound       public-service/redis-sentinel-master-storage-redis-sentinel-master-ss-0   redis-sentinel-storage-class            19h
+pv-redis-sentinel-1   1Gi        RWX            Recycle          Bound       public-service/redis-sentinel-slave-storage-redis-sentinel-slave-ss-0     redis-sentinel-storage-class            19h
+pv-redis-sentinel-2   1Gi        RWX            Recycle          Bound       public-service/redis-sentinel-slave-storage-redis-sentinel-slave-ss-1     redis-sentinel-storage-class            19h
+redis-pv1             5Gi        RWO            Recycle          Available                                                                             redis-cluster                           7s
+redis-pv2             5Gi        RWO            Recycle          Available                                                                             redis-cluster                           7s
+redis-pv3             5Gi        RWO            Recycle          Available                                                                             redis-cluster                           7s
+redis-pv4             5Gi        RWO            Recycle          Available                                                                             redis-cluster                           7s
+redis-pv5             5Gi        RWO            Recycle          Available                                                                             redis-cluster                           7s
+redis-pv6             5Gi        RWO            Recycle          Available                                                                             redis-cluster                           7s
+
+###2、创建服务相关
+####1)、创建ConfigMap
+[root@master-1 cluster]# vim cm.yml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-cluster
+data:
+  update-node.sh: |
+    #!/bin/sh
+    REDIS_NODES="/data/nodes.conf"
+    sed -i -e "/myself/ s/[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}/${POD_IP}/" ${REDIS_NODES}
+    exec "$@"
+  redis.conf: |+
+    cluster-enabled yes
+    cluster-require-full-coverage no
+    cluster-node-timeout 15000
+    cluster-config-file /data/nodes.conf
+    cluster-migration-barrier 1
+    dir /data
+    appendonly yes
+    protected-mode no
+
+[root@master-1 cluster]# kubectl apply -f redis-cm.yml
+configmap/redis-cluster created
+[root@master-1 cluster]# kubectl get cm
+NAME            DATA   AGE
+redis-cluster   2      7s
+
+
+
+[root@master-1 ~]# kubectl describe cm redis-cluster
+Name:         redis-cluster
+Namespace:    default
+Labels:       <none>
+Annotations:  <none>
+
+Data
+====
+update-node.sh:
+----
+######!/bin/sh
+REDIS_NODES="/data/nodes.conf"
+sed -i -e "/myself/ s/[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}/${POD_IP}/" ${REDIS_NODES}
+exec "$@"
+
+redis.conf:
+----
+cluster-enabled yes
+cluster-require-full-coverage no
+cluster-node-timeout 15000
+cluster-config-file /data/nodes.conf
+cluster-migration-barrier 1
+dir /data
+appendonly yes
+protected-mode no
+
+Events:  <none>
+[root@master-1 ~]# 
+
+
+
+####2)、创建 StatefulSet-Redis 集群节点
+
+[root@master-1 cluster]# vim redis-sts.yml
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster
+spec:
+  serviceName: redis-cluster
+  replicas: 6
+  selector:
+    matchLabels:
+      app: redis-cluster
+  template:
+    metadata:
+      labels:
+        app: redis-cluster
+    spec:
+      containers:
+      - name: redis
+        image: redis:6.2-alpine
+        ports:
+        - containerPort: 6379
+          name: client
+        - containerPort: 16379
+          name: gossip
+        command: ["/conf/update-node.sh", "redis-server", "/conf/redis.conf"]
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        volumeMounts:
+        - name: conf
+          mountPath: /conf
+          readOnly: false
+        - name: data
+          mountPath: /data
+          readOnly: false
+      volumes:
+      - name: conf
+        configMap:
+          name: redis-cluster
+          defaultMode: 0755
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 5Gi
+      storageClassName: redis-cluster
+
+[root@master-1 cluster]# kubectl apply -f redis-sts.yml
+statefulset.apps/redis-cluster created
+
+######Running一个之后 再创建下一个：
+[root@master-1 cluster]# kubectl get pods -l app=redis-cluster
+NAME              READY   STATUS              RESTARTS   AGE
+redis-cluster-0   1/1     Running             0          61s
+redis-cluster-1   1/1     Running             0          37s
+redis-cluster-2   1/1     Running             0          12s
+redis-cluster-3   1/1     Running             0          9s
+redis-cluster-4   1/1     Running             0          6s
+redis-cluster-5   0/1     ContainerCreating   0          1s
+
+[root@master-1 cluster]# kubectl get pods -l app=redis-cluster
+NAME              READY   STATUS    RESTARTS   AGE
+redis-cluster-0   1/1     Running   0          69s
+redis-cluster-1   1/1     Running   0          45s
+redis-cluster-2   1/1     Running   0          20s
+redis-cluster-3   1/1     Running   0          17s
+redis-cluster-4   1/1     Running   0          14s
+redis-cluster-5   1/1     Running   0          9s
+
+
+redis:6.2-alpine真快
+[root@node-1 pv3]# docker images
+REPOSITORY                                               TAG                 IMAGE ID            CREATED             SIZE
+redis                                                    latest              5d89766432d0        34 hours ago        105MB
+
+
+####3)、创建 Svc
+Headless service是StatefulSet实现稳定网络标识的基础，我们需要提前创建。准备文件redis-svc.yml如下
+[root@master-1 cluster]# vim redis-svc.yml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: client
+  - port: 16379
+    targetPort: 16379
+    name: gossip
+  selector:
+    app: redis-cluster
+[root@master-1 cluster]# kubectl apply -f redis-svc.yml
+service/redis-cluster created
+
+[root@master-1 cluster]# kubectl get svc redis-cluster
+NAME            TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)              AGE
+redis-cluster   ClusterIP   10.1.188.158   <none>        6379/TCP,16379/TCP   6s
+
+我们建立的不是“无头”服务，是ClusterIP服务
+可以看到，服务名称为redis-service，其CLUSTER-IP为None，表示这是一个“无头”服务。
+
+######全部状态：
+[root@master-1 cluster]# kubectl get pods,svc,pv
+NAME                  READY   STATUS    RESTARTS   AGE
+pod/redis-cluster-0   1/1     Running   0          3m59s
+pod/redis-cluster-1   1/1     Running   0          3m35s
+pod/redis-cluster-2   1/1     Running   0          3m10s
+pod/redis-cluster-3   1/1     Running   0          3m7s
+pod/redis-cluster-4   1/1     Running   0          3m4s
+pod/redis-cluster-5   1/1     Running   0          2m59s
+
+NAME                    TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)              AGE
+service/kubernetes      ClusterIP   10.1.0.1       <none>        443/TCP              8d
+service/redis-cluster   ClusterIP   10.1.188.158   <none>        6379/TCP,16379/TCP   113s
+
+NAME                                   CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                                                                     STORAGECLASS                   REASON   AGE
+persistentvolume/pv-redis-sentinel-0   1Gi        RWX            Recycle          Bound    public-service/redis-sentinel-master-storage-redis-sentinel-master-ss-0   redis-sentinel-storage-class            19h
+persistentvolume/pv-redis-sentinel-1   1Gi        RWX            Recycle          Bound    public-service/redis-sentinel-slave-storage-redis-sentinel-slave-ss-0     redis-sentinel-storage-class            19h
+persistentvolume/pv-redis-sentinel-2   1Gi        RWX            Recycle          Bound    public-service/redis-sentinel-slave-storage-redis-sentinel-slave-ss-1     redis-sentinel-storage-class            19h
+persistentvolume/redis-pv1             5Gi        RWO            Recycle          Bound    default/data-redis-cluster-0                                              redis-cluster                           5m49s
+persistentvolume/redis-pv2             5Gi        RWO            Recycle          Bound    default/data-redis-cluster-5                                              redis-cluster                           5m49s
+persistentvolume/redis-pv3             5Gi        RWO            Recycle          Bound    default/data-redis-cluster-4                                              redis-cluster                           5m49s
+persistentvolume/redis-pv4             5Gi        RWO            Recycle          Bound    default/data-redis-cluster-1                                              redis-cluster                           5m49s
+persistentvolume/redis-pv5             5Gi        RWO            Recycle          Bound    default/data-redis-cluster-3                                              redis-cluster                           5m49s
+persistentvolume/redis-pv6             5Gi        RWO            Recycle          Bound    default/data-redis-cluster-2                                              redis-cluster                           5m49s
+[root@master-1 cluster]# 
+
+
+###3、初始化 Redis Cluster
+
+####1)、初始化
+[root@master-1 cluster]# kubectl exec -it redis-cluster-0 -- redis-cli --cluster create --cluster-replicas 1 $(kubectl get pods -l app=redis-cluster -o jsonpath='{range.items[*]}{.status.podIP}:6379 {end}')
+
+
+输出:
+····
+Can I set the above configuration? (type 'yes' to accept): yes
+····
+
+
+
+[root@master-1 cluster]# kubectl exec -it redis-cluster-0 -- redis-cli --cluster create --cluster-replicas 1 $(kubectl get pods -l app=redis-cluster -o jsonpath='{range.items[*]}{.status.podIP}:6379 {end}')
+>>> Performing hash slots allocation on 6 nodes...
+Master[0] -> Slots 0 - 5460
+Master[1] -> Slots 5461 - 10922
+Master[2] -> Slots 10923 - 16383
+Adding replica 10.244.2.54:6379 to 10.244.2.52:6379
+Adding replica 10.244.1.49:6379 to 10.244.1.47:6379
+Adding replica 10.244.1.48:6379 to 10.244.2.53:6379
+M: efa0c84caafca28004f2a14b045975c8baf5e385 10.244.2.52:6379
+   slots:[0-5460] (5461 slots) master
+M: 3976b6e6ac99de968259705c65956e39bcd2a0cc 10.244.1.47:6379
+   slots:[5461-10922] (5462 slots) master
+M: 6dfe05f87940c752418b97f1b5bc3d8114633661 10.244.2.53:6379
+   slots:[10923-16383] (5461 slots) master
+S: a3b51b598d3e7f948472ebcfe0aaa5a606f3378b 10.244.1.48:6379
+   replicates 6dfe05f87940c752418b97f1b5bc3d8114633661
+S: 0d212bbd8e0ca2933bdd64db7937fdd7b550b73c 10.244.2.54:6379
+   replicates efa0c84caafca28004f2a14b045975c8baf5e385
+S: 3b04c7eb9c2bd8fa82bf5f5808d62d49f09c6cf0 10.244.1.49:6379
+   replicates 3976b6e6ac99de968259705c65956e39bcd2a0cc
+Can I set the above configuration? (type 'yes' to accept): yes
+>>> Nodes configuration updated
+>>> Assign a different config epoch to each node
+>>> Sending CLUSTER MEET messages to join the cluster
+Waiting for the cluster to join
+..
+>>> Performing Cluster Check (using node 10.244.2.52:6379)
+M: efa0c84caafca28004f2a14b045975c8baf5e385 10.244.2.52:6379
+   slots:[0-5460] (5461 slots) master
+   1 additional replica(s)
+S: 3b04c7eb9c2bd8fa82bf5f5808d62d49f09c6cf0 10.244.1.49:6379
+   slots: (0 slots) slave
+   replicates 3976b6e6ac99de968259705c65956e39bcd2a0cc
+M: 6dfe05f87940c752418b97f1b5bc3d8114633661 10.244.2.53:6379
+   slots:[10923-16383] (5461 slots) master
+   1 additional replica(s)
+M: 3976b6e6ac99de968259705c65956e39bcd2a0cc 10.244.1.47:6379
+   slots:[5461-10922] (5462 slots) master
+   1 additional replica(s)
+S: 0d212bbd8e0ca2933bdd64db7937fdd7b550b73c 10.244.2.54:6379
+   slots: (0 slots) slave
+   replicates efa0c84caafca28004f2a14b045975c8baf5e385
+S: a3b51b598d3e7f948472ebcfe0aaa5a606f3378b 10.244.1.48:6379
+   slots: (0 slots) slave
+   replicates 6dfe05f87940c752418b97f1b5bc3d8114633661
+[OK] All nodes agree about slots configuration.
+>>> Check for open slots...
+>>> Check slots coverage...
+[OK] All 16384 slots covered.
+[root@master-1 cluster]# 
+
+####2)、验证
+######验证集群部署
+[root@master-1 cluster]# kubectl exec -it redis-cluster-0 -- redis-cli cluster info
+cluster_state:ok
+cluster_slots_assigned:16384
+cluster_slots_ok:16384
+cluster_slots_pfail:0
+cluster_slots_fail:0
+cluster_known_nodes:6
+cluster_size:3
+cluster_current_epoch:6
+cluster_my_epoch:1
+cluster_stats_messages_ping_sent:26
+cluster_stats_messages_pong_sent:31
+cluster_stats_messages_sent:57
+cluster_stats_messages_ping_received:26
+cluster_stats_messages_pong_received:26
+cluster_stats_messages_meet_received:5
+cluster_stats_messages_received:57
+[root@master-1 cluster]# 
+
+
+
+[root@master-1 ~]# kubectl exec -it redis-cluster-0 -- redis-cli ping
+PONG
+
+
+######查看各个redis的状态
+[root@master-1 ~]#  for x in $(seq 0 5); do echo "redis-cluster-$x"; kubectl exec redis-cluster-$x -- redis-cli ping; echo; done
+redis-cluster-0
+PONG
+
+redis-cluster-1
+PONG
+
+redis-cluster-2
+PONG
+
+redis-cluster-3
+PONG
+
+redis-cluster-4
+PONG
+
+redis-cluster-5
+PONG
+
+[root@master-1 ~]# 
+
+######查看各个redis的主从状态
+ [root@master-1 cluster]# kubectl exec -it redis-cluster-0 -- redis-cli role
+ 1) "master"
+ 2) (integer) 3486
+ 3) 1) 1) "10.244.2.54"
+       2) "6379"
+       3) "3486"
+
+ 如上可以看到，其为master，slave为10.244.2.54即redis-cluster-4`。
+
+ [root@node-1 pv3]# kubectl get pods -o wide
+ NAME              READY   STATUS    RESTARTS   AGE   IP            NODE     NOMINATED NODE   READINESS GATES
+ redis-cluster-0   1/1     Running   0          59m   10.244.2.52   node-2   <none>           <none>
+ redis-cluster-1   1/1     Running   0          59m   10.244.1.47   node-1   <none>           <none>
+ redis-cluster-2   1/1     Running   0          58m   10.244.2.53   node-2   <none>           <none>
+ redis-cluster-3   1/1     Running   0          58m   10.244.1.48   node-1   <none>           <none>
+ redis-cluster-4   1/1     Running   0          58m   10.244.2.54   node-2   <none>           <none>
+ redis-cluster-5   1/1     Running   0          58m   10.244.1.49   node-1   <none>           <none>
+
+
+
+查看全部
+[root@master-1 cluster]# for x in $(seq 0 5); do echo "redis-cluster-$x"; kubectl exec redis-cluster-$x -- redis-cli role; echo; done
+redis-cluster-0
+master
+70
+10.244.2.54
+6379
+70
+
+redis-cluster-1
+master
+56
+10.244.1.49
+6379
+56
+
+redis-cluster-2
+master
+70
+10.244.1.48
+6379
+70
+
+redis-cluster-3
+slave
+10.244.2.53
+6379
+connected
+70
+
+redis-cluster-4
+slave
+10.244.2.52
+6379
+connected
+70
+
+redis-cluster-5
+slave
+10.244.1.47
+6379
+connected
+56
+
+如上信息可确定：master,slave对应信息：
+redis-cluster-0是master
+redis-cluster-1是master
+redis-cluster-2是master
+redis-cluster-3是slave
+redis-cluster-4是slave
+redis-cluster-5是slave
+
+
+
+######数据文件生成：
+[root@node-1 redis-cluster]# ll *
+pv1:
+total 8
+-rw-r--r-- 1 root root   0 Sep 30 13:46 1
+-rw-r--r-- 1 root root   0 Sep 30 14:03 appendonly.aof
+-rw-r--r-- 1 root root 175 Sep 30 14:31 dump.rdb
+-rw-r--r-- 1 root root 793 Sep 30 14:31 nodes.conf
+
+pv2:
+total 12
+-rw-r--r-- 1 root root  92 Sep 30 14:31 appendonly.aof
+-rw-r--r-- 1 root root 175 Sep 30 14:31 dump.rdb
+-rw-r--r-- 1 root root 793 Sep 30 14:31 nodes.conf
+
+pv3:
+total 12
+-rw-r--r-- 1 root root  92 Sep 30 14:31 appendonly.aof
+-rw-r--r-- 1 root root 175 Sep 30 14:31 dump.rdb
+-rw-r--r-- 1 root root 793 Sep 30 14:31 nodes.conf
+
+pv4:
+total 8
+-rw-r--r-- 1 root root   0 Sep 30 14:03 appendonly.aof
+-rw-r--r-- 1 root root 175 Sep 30 14:31 dump.rdb
+-rw-r--r-- 1 root root 793 Sep 30 14:31 nodes.conf
+
+pv5:
+total 12
+-rw-r--r-- 1 root root  92 Sep 30 14:31 appendonly.aof
+-rw-r--r-- 1 root root 175 Sep 30 14:31 dump.rdb
+-rw-r--r-- 1 root root 793 Sep 30 14:31 nodes.conf
+
+pv6:
+total 8
+-rw-r--r-- 1 root root   0 Sep 30 14:03 appendonly.aof
+-rw-r--r-- 1 root root 175 Sep 30 14:31 dump.rdb
+-rw-r--r-- 1 root root 793 Sep 30 14:31 nodes.conf
+[root@node-1 redis-cluster]# 
+
+
+
+######内部域名相关：
+同时，每个Pod都会得到集群内的一个DNS域名，格式为$(podname).$(service name).$(namespace).svc.cluster.local，也即是：
+
+redis-app-0.redis-service.default.svc.cluster.local
+redis-app-1.redis-service.default.svc.cluster.local
+...以此类推...
+
+
+
+[root@node-1 pv3]# kubectl get pods -o wide
+NAME              READY   STATUS    RESTARTS   AGE   IP            NODE     NOMINATED NODE   READINESS GATES
+redis-cluster-0   1/1     Running   0          59m   10.244.2.52   node-2   <none>           <none>
+redis-cluster-1   1/1     Running   0          59m   10.244.1.47   node-1   <none>           <none>
+redis-cluster-2   1/1     Running   0          58m   10.244.2.53   node-2   <none>           <none>
+redis-cluster-3   1/1     Running   0          58m   10.244.1.48   node-1   <none>           <none>
+redis-cluster-4   1/1     Running   0          58m   10.244.2.54   node-2   <none>           <none>
+redis-cluster-5   1/1     Running   0          58m   10.244.1.49   node-1   <none>           <none>
+
+
+在K8S集群内部，这些Pod就可以利用该域名互相通信。我们可以使用busybox镜像的nslookup检验这些域名：
+[root@k8s-node1 ~]# kubectl run -i --tty --image busybox dns-test --restart=Never --rm /bin/sh 
+If you don't see a command prompt, try pressing enter.
+/ # nslookup redis-app-0.redis-service
+Server:    10.96.0.10
+Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      redis-app-0.redis-service
+Address 1: 192.168.169.207 redis-app-0.redis-service.default.svc.cluster.local
+
+可以看到， redis-app-0的IP为192.168.169.207。当然，若Redis Pod迁移或是重启（我们可以手动删除掉一个Redis Pod来测试），则IP是会改变的，但Pod的域名、SRV records、A record都不会改变。
+
+另外可以发现，我们之前创建的pv都被成功绑定了。
+
+ 
+
+###4、管理 Redis Cluster（不用必须做）
+常用的Redis-tribe工具进行集群的初始化。
+
+创建Ubuntu容器
+由于Redis集群必须在所有节点启动后才能进行初始化，而如果将初始化逻辑写入Statefulset中，则是一件非常复杂而且低效的行为。这里，本人不得不称赞一下原项目作者的思路，值得学习。也就是说，我们可以在K8S上创建一个额外的容器，专门用于进行K8S集群内部某些服务的管理控制。
+
+这里，我们专门启动一个Ubuntu的容器，可以在该容器中安装Redis-tribe，进而初始化Redis集群，执行：
+kubectl run -i --tty ubuntu --image=ubuntu --restart=Never /bin/bash
+
+成功后，我们可以进入ubuntu容器中，原项目要求执行如下命令安装基本的软件环境：
+apt-get update
+apt-get install -y vim wget python2.7 python-pip redis-tools dnsutils
+
+但是，需要注意的是，在我们天朝，执行上述命令前需要提前做一件必要的工作——换源，否则你懂得。我们使用阿里云的Ubuntu源，执行：
+
+
+root@ubuntu:/# cat > /etc/apt/sources.list << EOF
+> deb http://mirrors.aliyun.com/ubuntu/ bionic main restricted universe multiverse
+> deb-src http://mirrors.aliyun.com/ubuntu/ bionic main restricted universe multiverse
+> 
+> deb http://mirrors.aliyun.com/ubuntu/ bionic-security main restricted universe multiverse
+> deb-src http://mirrors.aliyun.com/ubuntu/ bionic-security main restricted universe multiverse
+> 
+> deb http://mirrors.aliyun.com/ubuntu/ bionic-updates main restricted universe multiverse
+> deb-src http://mirrors.aliyun.com/ubuntu/ bionic-updates main restricted universe multiverse
+> 
+> deb http://mirrors.aliyun.com/ubuntu/ bionic-proposed main restricted universe multiverse
+> deb-src http://mirrors.aliyun.com/ubuntu/ bionic-proposed main restricted universe multiverse
+> 
+> deb http://mirrors.aliyun.com/ubuntu/ bionic-backports main restricted universe multiverse
+> deb-src http://mirrors.aliyun.com/ubuntu/ bionic-backports main restricted universe multiverse
+> EOF
+源修改完毕后，就可以执行上面的两个命令。
+
+初始化集群
+首先，我们需要安装redis-trib：
+pip install redis-trib
+
+然后，创建只有Master节点的集群：
+redis-trib.py create \
+  `dig +short redis-app-0.redis-service.default.svc.cluster.local`:6379 \
+  `dig +short redis-app-1.redis-service.default.svc.cluster.local`:6379 \
+  `dig +short redis-app-2.redis-service.default.svc.cluster.local`:6379
+
+
+
+其次，为每个Master添加Slave：
+redis-trib.py replicate \
+  --master-addr `dig +short redis-app-0.redis-service.default.svc.cluster.local`:6379 \
+  --slave-addr `dig +short redis-app-3.redis-service.default.svc.cluster.local`:6379
+
+redis-trib.py replicate \
+  --master-addr `dig +short redis-app-1.redis-service.default.svc.cluster.local`:6379 \
+  --slave-addr `dig +short redis-app-4.redis-service.default.svc.cluster.local`:6379
+
+redis-trib.py replicate \
+  --master-addr `dig +short redis-app-2.redis-service.default.svc.cluster.local`:6379 \
+  --slave-addr `dig +short redis-app-5.redis-service.default.svc.cluster.local`:6379
+
+至此，我们的Redis集群就真正创建完毕了，连到任意一个Redis Pod中检验一下：
+
+
+###5、Redis Cluster其他操作
+
+[root@master-1 cluster]# kubectl exec -it redis-cluster-0 -- redis-cli cluster nodes
+3b04c7eb9c2bd8fa82bf5f5808d62d49f09c6cf0 10.244.1.49:6379@16379 slave 3976b6e6ac99de968259705c65956e39bcd2a0cc 0 1632985874700 2 connected
+6dfe05f87940c752418b97f1b5bc3d8114633661 10.244.2.53:6379@16379 master - 0 1632985875712 3 connected 10923-16383
+3976b6e6ac99de968259705c65956e39bcd2a0cc 10.244.1.47:6379@16379 master - 0 1632985875000 2 connected 5461-10922
+0d212bbd8e0ca2933bdd64db7937fdd7b550b73c 10.244.2.54:6379@16379 slave efa0c84caafca28004f2a14b045975c8baf5e385 0 1632985877729 1 connected
+efa0c84caafca28004f2a14b045975c8baf5e385 10.244.2.52:6379@16379 myself,master - 0 1632985877000 1 connected 0-5460
+a3b51b598d3e7f948472ebcfe0aaa5a606f3378b 10.244.1.48:6379@16379 slave 6dfe05f87940c752418b97f1b5bc3d8114633661 0 1632985877000 3 connected
+
+[root@master-1 cluster]# kubectl exec -it redis-cluster-0 -- redis-cli cluster info
+cluster_state:ok
+cluster_slots_assigned:16384
+cluster_slots_ok:16384
+cluster_slots_pfail:0
+cluster_slots_fail:0
+cluster_known_nodes:6
+cluster_size:3
+cluster_current_epoch:6
+cluster_my_epoch:1
+cluster_stats_messages_ping_sent:2382
+cluster_stats_messages_pong_sent:2478
+cluster_stats_messages_sent:4860
+cluster_stats_messages_ping_received:2473
+cluster_stats_messages_pong_received:2382
+cluster_stats_messages_meet_received:5
+cluster_stats_messages_received:4860
+
+
+[root@master-1 cluster]# for x in $(seq 0 5); do echo "redis-cluster-$x"; kubectl exec redis-cluster-$x -- redis-cli role; echo; done
+redis-cluster-0
+master
+135366
+10.244.2.54
+6379
+135366
+
+redis-cluster-1
+master
+135338
+10.244.1.49
+6379
+135338
+
+redis-cluster-2
+master
+135366
+10.244.1.48
+6379
+135366
+
+redis-cluster-3
+slave
+10.244.2.53
+6379
+connected
+135366
+
+redis-cluster-4
+slave
+10.244.2.52
+6379
+connected
+135366
+
+redis-cluster-5
+slave
+10.244.1.47
+6379
+connected
+135338
+
+
+
+######问题：
+[root@master-1 cluster]# kubectl exec -it pod/redis-cluster-0 -- /bin/bash
+OCI runtime exec failed: exec failed: container_linux.go:380: starting container process caused: exec: "/bin/bash": stat /bin/bash: no such file or directory: unknown
+command terminated with exit code 126
+
+
+这个错误说明 镜像不包含适合bash的风格操作，没有这样的文件或目录
+可能你的镜像基于busybox，它没有bash shell。但他在/bin/sh有一个shell
+直接执行kubectl exec -ti redis-cluster-0 /bin/sh 就可以进入容器里面
+
+解决：
+[root@master-1 cluster]# kubectl exec -it pod/redis-cluster-0 -- /bin/sh
+/data # ls
+1               appendonly.aof  dump.rdb        nodes.conf
+
+/data # netstat  -anp
+Active Internet connections (servers and established)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name    
+tcp        0      0 0.0.0.0:16379           0.0.0.0:*               LISTEN      1/redis-server *:63
+tcp        0      0 0.0.0.0:6379            0.0.0.0:*               LISTEN      1/redis-server *:63
+tcp        0      0 10.244.2.52:49614       10.244.1.48:16379       ESTABLISHED 1/redis-server *:63
+tcp        0      0 10.244.2.52:36172       10.244.1.47:16379       ESTABLISHED 1/redis-server *:63
+tcp        0      0 10.244.2.52:54804       10.244.2.54:16379       ESTABLISHED 1/redis-server *:63
+tcp        0      0 10.244.2.52:16379       10.244.1.48:53314       ESTABLISHED 1/redis-server *:63
+tcp        0      0 10.244.2.52:16379       10.244.1.47:42512       ESTABLISHED 1/redis-server *:63
+tcp        0      0 127.0.0.1:49042         127.0.0.1:6379          TIME_WAIT   -
+tcp        0      0 10.244.2.52:16379       10.244.2.54:36702       ESTABLISHED 1/redis-server *:63
+tcp        0      0 10.244.2.52:6379        10.244.2.54:51654       ESTABLISHED 1/redis-server *:63
+tcp        0      0 10.244.2.52:54670       10.244.1.49:16379       ESTABLISHED 1/redis-server *:63
+tcp        0      0 10.244.2.52:16379       10.244.2.53:48374       ESTABLISHED 1/redis-server *:63
+tcp        0      0 10.244.2.52:36410       10.244.2.53:16379       ESTABLISHED 1/redis-server *:63
+tcp        0      0 10.244.2.52:16379       10.244.1.49:55204       ESTABLISHED 1/redis-server *:63
+tcp        0      0 :::16379                :::*                    LISTEN      1/redis-server *:63
+tcp        0      0 :::6379                 :::*                    LISTEN      1/redis-server *:63
+Active UNIX domain sockets (servers and established)
+Proto RefCnt Flags       Type       State         I-Node PID/Program name    Path
+/data # 
+
+
+/conf # ls -al
+total 0
+drwxrwxrwx    3 root     root            99 Sep 30 06:03 .
+drwxr-xr-x    1 root     root            41 Sep 30 06:03 ..
+drwxr-xr-x    2 root     root            46 Sep 30 06:03 ..2021_09_30_06_03_01.833951206
+lrwxrwxrwx    1 root     root            31 Sep 30 06:03 ..data -> ..2021_09_30_06_03_01.833951206
+lrwxrwxrwx    1 root     root            17 Sep 30 06:03 redis.conf -> ..data/redis.conf
+lrwxrwxrwx    1 root     root            21 Sep 30 06:03 update-node.sh -> ..data/update-node.sh
+/conf # cat update-node.sh 
+######!/bin/sh
+REDIS_NODES="/data/nodes.conf"
+sed -i -e "/myself/ s/[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}/${POD_IP}/" ${REDIS_NODES}
+exec "$@"
+/conf # 
+
+/conf # cat redis.conf 
+cluster-enabled yes
+cluster-require-full-coverage no
+cluster-node-timeout 15000
+cluster-config-file /data/nodes.conf
+cluster-migration-barrier 1
+dir /data
+appendonly yes
+protected-mode no
+/conf # 
+
+/data # df -h
+Filesystem                Size      Used Available Use% Mounted on
+overlay                  50.0G      5.5G     44.5G  11% /
+tmpfs                    64.0M         0     64.0M   0% /dev
+tmpfs                   909.7M         0    909.7M   0% /sys/fs/cgroup
+/dev/mapper/centos-root
+                         50.0G      5.5G     44.5G  11% /conf
+172.16.201.134:/root/redis-cluster/pv1
+                         50.0G      3.4G     46.5G   7% /data
+/dev/mapper/centos-root
+                         50.0G      5.5G     44.5G  11% /dev/termination-log
+/dev/mapper/centos-root
+                         50.0G      5.5G     44.5G  11% /etc/resolv.conf
+/dev/mapper/centos-root
+                         50.0G      5.5G     44.5G  11% /etc/hostname
+/dev/mapper/centos-root
+                         50.0G      5.5G     44.5G  11% /etc/hosts
+shm                      64.0M         0     64.0M   0% /dev/shm
+tmpfs                   909.7M     12.0K    909.7M   0% /run/secrets/kubernetes.io/serviceaccount
+tmpfs                   909.7M         0    909.7M   0% /proc/acpi
+tmpfs                    64.0M         0     64.0M   0% /proc/kcore
+tmpfs                    64.0M         0     64.0M   0% /proc/keys
+tmpfs                    64.0M         0     64.0M   0% /proc/timer_list
+tmpfs                    64.0M         0     64.0M   0% /proc/timer_stats
+tmpfs                    64.0M         0     64.0M   0% /proc/sched_debug
+tmpfs                   909.7M         0    909.7M   0% /proc/scsi
+tmpfs                   909.7M         0    909.7M   0% /sys/firmware
+
+######以外发现：
+[root@master-1 ~]# docker images
+REPOSITORY                                                        TAG                 IMAGE ID            CREATED             SIZE
+busybox                                                           latest              16ea53ea7c65        3 weeks ago         1.24MB
+
+busybox很小，下次做景象，用busybox
+
+
+
+######改一下NodePort，做下测试
+[root@master-1 cluster]# cat redis-svc.yml 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster
+spec:
+  type: NodePort
+  ports:
+  - port: 6379
+    targetPort: 6379
+    nodePort: 31000
+    name: client
+  - port: 16379
+    targetPort: 16379
+    name: gossip
+  selector:
+    app: redis-cluster
+
+[root@master-1 cluster]# redis-cli -p 31000
+127.0.0.1:31000> role
+1) "master"
+2) (integer) 140210
+3) 1) 1) "10.244.2.54"
+      2) "6379"
+      3) "140210"
+127.0.0.1:31000> 
+
+连接成功
+
+
+###6、主从切换测试
+在K8S上搭建完好Redis集群后，我们最关心的就是其原有的高可用机制是否正常。这里，我们可以任意挑选一个Master的Pod来测试集群的主从切换机制
+如pod/redis-cluster-1：
+
+[root@master-1 cluster]# kubectl get pods,svc -o wide   
+NAME                  READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+pod/redis-cluster-0   1/1     Running   0          7d21h   10.244.2.52   node-2   <none>           <none>
+pod/redis-cluster-1   1/1     Running   0          7d21h   10.244.1.47   node-1   <none>           <none>
+pod/redis-cluster-2   1/1     Running   0          7d21h   10.244.2.53   node-2   <none>           <none>
+pod/redis-cluster-3   1/1     Running   0          7d21h   10.244.1.48   node-1   <none>           <none>
+pod/redis-cluster-4   1/1     Running   0          7d21h   10.244.2.54   node-2   <none>           <none>
+pod/redis-cluster-5   1/1     Running   0          7d21h   10.244.1.49   node-1   <none>           <none>
+
+NAME                    TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)                          AGE   SELECTOR
+service/kubernetes      ClusterIP   10.1.0.1      <none>        443/TCP                          15d   <none>
+service/redis-cluster   NodePort    10.1.231.82   <none>        6379:31000/TCP,16379:30701/TCP   82m   app=redis-cluster
+
+进入pod/redis-cluster-1
+[root@master-1 cluster]# kubectl exec -it pod/redis-cluster-1 -- /bin/sh
+
+/data # redis-cli 
+127.0.0.1:6379> role
+1) "master"
+2) (integer) 140784
+3) 1) 1) "10.244.1.49"
+      2) "6379"
+      3) "140784"
+127.0.0.1:6379> 
+
+如上可以看到，其为master，slave为10.244.1.49 即redis-cluster-5。
+接着，我们手动删除pod/redis-cluster-1：
+[root@master-1 cluster]# kubectl delete pods redis-cluster-1 -n default    
+pod "redis-cluster-1" deleted
+[root@master-1 cluster]# 
+
+
+
+[root@master-1 cluster]#  kubectl get pods redis-cluster-1 -o wide           
+NAME              READY   STATUS    RESTARTS   AGE   IP            NODE     NOMINATED NODE   READINESS GATES
+redis-cluster-1   1/1     Running   0          30s   10.244.1.50   node-1   <none>           <none>
+如上，IP改变为10.244.1.50。我们再进入redis-cluster-1内部查看：
+
+[root@master-1 cluster]#  kubectl exec -it pod/redis-cluster-1 -- /bin/sh
+/data # redis-cli
+127.0.0.1:6379> role
+1) "master"
+2) (integer) 98
+3) 1) 1) "10.244.1.49"
+      2) "6379"
+      3) "98"
+127.0.0.1:6379> 
+
+如上，redis-cluster-1变成了slave，从属于它之前的从节点10.244.1.47即redis-cluster-5。
+
+
+
+
+
+查看新的 Pod 的运行情况，相当于tail着 实时的 容器状态：
+[root@master-1 ~]# kubectl get pods -l redis-cluster-1 --watch      
+
+
+
+
+
+###7、疑问
+至此，大家可能会疑惑，前面讲了这么多似乎并没有体现出StatefulSet的作用，其提供的稳定标志redis-cluster-*仅在初始化集群的时候用到，而后续Redis Pod的通信或配置文件中并没有使用该标志。我想说，是的，本文使用StatefulSet部署Redis确实没有体现出其优势，还不如介绍Zookeeper集群来的明显，不过没关系，学到知识就好。
+
+那为什么没有使用稳定的标志，Redis Pod也能正常进行故障转移呢？这涉及了Redis本身的机制。因为，Redis集群中每个节点都有自己的NodeId（保存在自动生成的nodes.conf中），并且该NodeId不会随着IP的变化和变化，这其实也是一种固定的网络标志。也就是说，就算某个Redis Pod重启了，该Pod依然会加载保存的NodeId来维持自己的身份。我们可以在NFS上查看redis-cluster-1的nodes.conf文件：
+[root@master-1 ~]# cat /root/redis-cluster/pv1/nodes.conf
+3b04c7eb9c2bd8fa82bf5f5808d62d49f09c6cf0 10.244.1.49:6379@16379 slave 3976b6e6ac99de968259705c65956e39bcd2a0cc 0 1633663260487 2 connected
+6dfe05f87940c752418b97f1b5bc3d8114633661 10.244.2.53:6379@16379 master - 0 1633663259458 3 connected 10923-16383
+3976b6e6ac99de968259705c65956e39bcd2a0cc 10.244.1.50:6379@16379 master - 1633663254407 1633663251381 2 disconnected 5461-10922
+0d212bbd8e0ca2933bdd64db7937fdd7b550b73c 10.244.2.54:6379@16379 slave efa0c84caafca28004f2a14b045975c8baf5e385 0 1633663260000 1 connected
+efa0c84caafca28004f2a14b045975c8baf5e385 10.244.2.52:6379@16379 myself,master - 0 1633663256000 1 connected 0-5460
+a3b51b598d3e7f948472ebcfe0aaa5a606f3378b 10.244.1.48:6379@16379 slave 6dfe05f87940c752418b97f1b5bc3d8114633661 0 1633663260000 3 connected
+vars currentEpoch 6 lastVoteEpoch 0
+[root@master-1 ~]# 
+
+如上，第一列为NodeId，稳定不变；第二列为IP和端口信息，可能会改变。
+
+这里，我们介绍NodeId的两种使用场景：
+当某个Slave Pod断线重连后IP改变，但是Master发现其NodeId依旧， 就认为该Slave还是之前的Slave。
+当某个Master Pod下线后，集群在其Slave中选举重新的Master。待旧Master上线后，集群发现其NodeId依旧，会让旧Master变成新Master的slave。
+对于这两种场景，大家有兴趣的话还可以自行测试，注意要观察Redis的日志。
