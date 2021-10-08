@@ -1,0 +1,469 @@
+MySQL部署
+
+###（一）NFS安装
+######master节点安装nfs
+[root@master-1 mysql]# yum install rpcbind
+[root@master-1 mysql]# yum -y install nfs-utils
+######创建nfs目录
+[root@master-1 mysql]# mkdir /root/nfs_data
+[root@master-1 mysql]# chmod -R 777 /root/nfs_data
+######编辑export文件
+[root@master-1 mysql]# vim /etc/exports
+/root/nfs_data *(rw,no_root_squash,sync)
+######配置生效
+[root@master-1 mysql]# exportfs -r
+######查看生效
+[root@master-1 mysql]# exportfs
+/root/nfs_data  <world>
+
+######启动rpcbind、nfs服务
+[root@master-1 mysql]# systemctl restart rpcbind && systemctl enable rpcbind
+[root@master-1 mysql]# systemctl restart nfs && systemctl enable nfs
+Created symlink from /etc/systemd/system/multi-user.target.wants/nfs-server.service to /usr/lib/systemd/system/nfs-server.service.
+[root@master-1 mysql]# rpcinfo -p localhost
+   program vers proto   port  service
+    100000    4   tcp    111  portmapper
+    100000    3   tcp    111  portmapper
+    100000    2   tcp    111  portmapper
+    100000    4   udp    111  portmapper
+    100000    3   udp    111  portmapper
+    100000    2   udp    111  portmapper
+    100024    1   udp  52230  status
+    100024    1   tcp  37745  status
+    100005    1   udp  20048  mountd
+    100005    1   tcp  20048  mountd
+    100005    2   udp  20048  mountd
+    100005    2   tcp  20048  mountd
+    100005    3   udp  20048  mountd
+    100005    3   tcp  20048  mountd
+    100003    3   tcp   2049  nfs
+    100003    4   tcp   2049  nfs
+    100227    3   tcp   2049  nfs_acl
+    100003    3   udp   2049  nfs
+    100003    4   udp   2049  nfs
+    100227    3   udp   2049  nfs_acl
+    100021    1   udp  38776  nlockmgr
+    100021    3   udp  38776  nlockmgr
+    100021    4   udp  38776  nlockmgr
+    100021    1   tcp  35404  nlockmgr
+    100021    3   tcp  35404  nlockmgr
+    100021    4   tcp  35404  nlockmgr
+
+
+######showmount测试
+[root@master-1 mysql]# showmount -e 172.16.201.134
+Export list for 172.16.201.134:
+/root/nfs_data *
+
+[root@node-2 ~]# showmount -e 172.16.201.134
+Export list for 172.16.201.134:
+/root/nfs_data *
+
+[root@node-1 ~]# showmount -e 172.16.201.134
+Export list for 172.16.201.134:
+/root/nfs_data *
+
+
+######所有节点安装客户端
+[root@node-1 ~]# yum -y install nfs-utils;systemctl start nfs && systemctl enable nfs
+[root@node-2 ~]# yum -y install nfs-utils;systemctl start nfs && systemctl enable nfs
+
+
+######节点1挂上
+[root@node-1 ~]# mkdir /root/nfs_data
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/nfs_data  /root/nfs_data
+[root@node-1 nfs_data]# df -h|grep 172.16.201.134
+172.16.201.134:/root/nfs_data   50G  4.7G   46G  10% /root/nfs_data
+
+######节点2挂上
+[root@node-2 ~]# mkdir /root/nfs_data
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/nfs_data  /root/nfs_data
+[root@node-2 ~]# df -h|grep 172.16.201.134
+172.16.201.134:/root/nfs_data   50G  4.7G   46G  10% /root/nfs_data
+
+######节点测试写
+[root@master-1 nfs_data]#  echo "test" > /root/nfs_data/1
+[root@node-2 nfs_data]# cat 1
+test
+[root@node-1 nfs_data]# cat 1
+test
+
+###（二）部署PVC
+
+####1、建立配置文件
+######建PV
+[root@master-1 mysql]# vim pv-mysql.yaml              
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: model-db-pv
+spec:
+  accessModes:
+  - ReadWriteOnce
+  capacity:
+    storage: 5Gi
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: model-db-pv-claim
+    namespace: default
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: mysql-nfs-storage
+  nfs:
+    path: /root/nfs_data
+    server: 172.16.201.134
+  volumeMode: Filesystem
+
+[root@master-1 mysql]# kubectl apply -f pv-mysql.yaml 
+persistentvolume/model-db-pv created
+
+
+
+######建SC
+[root@master-1 mysql]# vim sc-mysql.yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: mysql-nfs-storage
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
+[root@master-1 mysql]# kubectl apply -f sc-mysql.yaml
+storageclass.storage.k8s.io/mysql-nfs-storage created
+
+确保
+[root@master-1 mysql]# kubectl get StorageClass
+NAME                          PROVISIONER         RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+mysql-nfs-storage (default)   kubernetes.io/nfs   Retain          Immediate           false                  19s
+
+
+
+######建PVC
+[root@master-1 mysql]# vim pvc-mysql.yaml             
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-db-pv-claim
+  namespace: default
+  labels:
+    app: model-mysql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+[root@master-1 mysql]# kubectl apply -f pvc-mysql.yaml
+persistentvolumeclaim/model-db-pv-claim created
+
+
+######建ConfigMap
+[root@master-1 mysql]# vim config-mysql.yaml 
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-db-config
+  namespace: default
+  labels:
+    app: model-db
+data:
+  my.cnf: |-
+    [client]
+    default-character-set=utf8mb4
+    [mysql]
+    default-character-set=utf8mb4
+    [mysqld]
+    character-set-server = utf8mb4
+    collation-server = utf8mb4_unicode_ci
+    init_connect='SET NAMES utf8mb4'
+    skip-character-set-client-handshake = true
+    max_connections=2000
+    secure_file_priv=/var/lib/mysql
+    bind-address=0.0.0.0
+    symbolic-links=0
+    sql_mode='STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'
+
+[root@master-1 mysql]# kubectl apply -f config-mysql.yaml 
+configmap/model-db-config created
+
+######建Deployment
+[root@master-1 mysql]# vim dep-mysql.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-db
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-mysql
+  template:
+    metadata:
+      labels:
+        app: model-mysql
+    spec:
+      containers:
+      - args:
+        - --datadir
+        - /var/lib/mysql/datadir
+        env:
+          - name: MYSQL_ROOT_PASSWORD
+            value: root
+          - name: MYSQL_USER
+            value: user
+          - name: MYSQL_PASSWORD
+            value: user
+        image: mysql:5.6
+        name: model-db-container
+        ports:
+        - containerPort: 3306
+          name: dbapi
+        volumeMounts:
+        - mountPath: /var/lib/mysql
+          name: model-db-storage
+        - name: config
+          mountPath: /etc/mysql/conf.d/my.cnf
+          subPath: my.cnf
+      volumes:
+      - name: model-db-storage
+        persistentVolumeClaim:
+          claimName: model-db-pv-claim
+      - name: config
+        configMap:
+          name: model-db-config
+      - name: localtime
+        hostPath:
+          type: File
+          path: /etc/localtime
+                                                                                                  
+[root@master-1 mysql]# kubectl apply -f dep-mysql.yaml 
+deployment.apps/model-db created
+
+######建SVC
+[root@master-1 mysql]# vim svc-mysql.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: model-mysql
+  name: model-db-svc
+  namespace: default
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 3306
+    nodePort: 32306
+    protocol: TCP
+    targetPort: 3306
+  selector:
+    app: model-mysql
+
+[root@master-1 mysql]# kubectl apply -f svc-mysql.yaml
+service/model-db-svc created
+
+
+
+######查看：
+[root@master-1 mysql]# kubectl get pv,pvc,configmap -o wide        
+NAME                           CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                       STORAGECLASS   REASON   AGE   VOLUMEMODE
+persistentvolume/model-db-pv   5Gi        RWO            Retain           Bound    default/model-db-pv-claim   nfs                     79s   Filesystem
+
+NAME                                      STATUS   VOLUME        CAPACITY   ACCESS MODES   STORAGECLASS        AGE   VOLUMEMODE
+persistentvolumeclaim/model-db-pv-claim   Bound    model-db-pv   5Gi        RWO            mysql-nfs-storage   62s   Filesystem
+
+NAME                        DATA   AGE
+configmap/model-db-config   1      18s
+
+
+######看日志，查问题
+[root@master-1 mysql]# kubectl describe pvc 
+Name:          data-mysql-0
+Namespace:     default
+StorageClass:  
+Status:        Pending
+Volume:        
+Labels:        app=mysql
+Annotations:   <none>
+Finalizers:    [kubernetes.io/pvc-protection]
+Capacity:      
+Access Modes:  
+VolumeMode:    Filesystem
+Mounted By:    <none>
+Events:
+  Type    Reason         Age                   From                         Message
+  ----    ------         ----                  ----                         -------
+  Normal  FailedBinding  48s (x2216 over 19h)  persistentvolume-controller  no persistent volumes available for this claim and no storage class is set
+
+
+Name:          model-db-pv-claim
+Namespace:     default
+StorageClass:  
+Status:        Bound
+Volume:        model-db-pv
+Labels:        app=model-mysql
+Annotations:   pv.kubernetes.io/bind-completed: yes
+               pv.kubernetes.io/bound-by-controller: yes
+Finalizers:    [kubernetes.io/pvc-protection]
+Capacity:      5Gi
+Access Modes:  RWO
+VolumeMode:    Filesystem
+Mounted By:    model-db-6969cd69d9-9w97r
+Events:        <none>
+
+
+
+
+#####问题处理：网络上的文档缺少storageclass相关配置
+问题no persistent volumes available for this claim and no storage class is set
+[root@master-1 mysql]# vim sc-mysql.yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: mysql-nfs-storage
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
+[root@master-1 mysql]# kubectl apply -f sc-mysql.yaml
+storageclass.storage.k8s.io/mysql-nfs-storage created
+
+######PVC配置引用上面的：storageClassName: mysql-nfs-storage
+[root@master-1 mysql]# cat pvc-mysql.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-db-pv-claim
+  namespace: default
+  labels:
+    app: model-mysql
+spec:
+  storageClassName: mysql-nfs-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+######PVC配置引用上面的：storageClassName: mysql-nfs-storage
+
+
+手动删除Pending的pvc，重新建立：
+[root@master-1 mysql]# kubectl get pvc
+NAME           STATUS    VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+data-mysql-0   Pending                                                     20h
+[root@master-1 mysql]# kubectl delete pvc data-mysql-0
+persistentvolumeclaim "data-mysql-0" deleted
+
+[root@master-1 mysql]# kubectl get pvc
+No resources found in default namespace.
+#####问题处理：网络上的文档缺少storageclass相关配置
+
+
+######调试：
+kubectl apply -f pv-mysql.yaml
+kubectl apply -f pvc-mysql.yaml
+kubectl apply -f config-mysql.yaml
+kubectl apply -f dep-mysql.yaml
+kubectl apply -f svc-mysql.yaml
+
+kubectl delete -f pv-mysql.yaml
+kubectl delete -f pvc-mysql.yaml
+kubectl delete -f config-mysql.yaml
+kubectl delete -f dep-mysql.yaml
+kubectl delete -f svc-mysql.yaml
+
+
+
+
+######全部执行完，查看状态
+[root@master-1 mysql]# kubectl get pod,svc,pv,pvc,configmap -o wide  
+NAME                            READY   STATUS    RESTARTS   AGE    IP            NODE     NOMINATED NODE   READINESS GATES
+pod/model-db-6969cd69d9-5wlcc   1/1     Running   0          101s   10.244.2.37   node-2   <none>           <none>
+
+NAME                   TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE   SELECTOR
+service/kubernetes     ClusterIP   10.1.0.1       <none>        443/TCP          5d    <none>
+service/model-db-svc   NodePort    10.1.155.128   <none>        3306:32306/TCP   8s    app=model-mysql
+
+NAME                           CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                       STORAGECLASS   REASON   AGE     VOLUMEMODE
+persistentvolume/model-db-pv   5Gi        RWO            Retain           Bound    default/model-db-pv-claim   nfs                     3m22s   Filesystem
+
+NAME                                      STATUS   VOLUME        CAPACITY   ACCESS MODES   STORAGECLASS        AGE    VOLUMEMODE
+persistentvolumeclaim/model-db-pv-claim   Bound    model-db-pv   5Gi        RWO            mysql-nfs-storage   3m5s   Filesystem
+
+NAME                        DATA   AGE
+configmap/model-db-config   1      2m21s
+
+
+
+[root@master-1 mysql]# kubectl get all -n default
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/model-db-6969cd69d9-5wlcc   1/1     Running   0          2m16s
+
+NAME                   TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+service/kubernetes     ClusterIP   10.1.0.1       <none>        443/TCP          5d
+service/model-db-svc   NodePort    10.1.155.128   <none>        3306:32306/TCP   43s
+
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/model-db   1/1     1            1           2m16s
+
+NAME                                  DESIRED   CURRENT   READY   AGE
+replicaset.apps/model-db-6969cd69d9   1         1         1       2m16s
+[root@master-1 mysql]# 
+
+######所有节点端口已开
+[root@master-1 mysql]#  netstat -antup|grep 32306
+tcp        0      0 0.0.0.0:32306           0.0.0.0:*               LISTEN      2855/kube-proxy 
+
+
+[root@node-1 datadir]# netstat -antup|grep 32306
+tcp        0      0 0.0.0.0:32306           0.0.0.0:*               LISTEN      2585/kube-proxy    
+
+[root@node-2 ~]# netstat -antup|grep 32306
+tcp        0      0 0.0.0.0:32306           0.0.0.0:*               LISTEN      2551/kube-proxy     
+
+
+######数据已有：
+[root@node-1 datadir]# ll /root/nfs_data/datadir
+total 110604
+-rw-rw---- 1 polkitd input       56 Sep 27 12:08 auto.cnf
+-rw-rw---- 1 polkitd input 12582912 Sep 27 12:08 ibdata1
+-rw-rw---- 1 polkitd input 50331648 Sep 27 12:08 ib_logfile0
+-rw-rw---- 1 polkitd input 50331648 Sep 27 12:08 ib_logfile1
+drwx------ 2 polkitd input     4096 Sep 27 12:08 mysql
+drwx------ 2 polkitd input     4096 Sep 27 12:08 performance_schema
+
+
+
+
+#####测试mysql 随便哪个node都可以
+
+
+安装客户端：
+[root@master-1 mysql]#  rpm -ivh https://repo.mysql.com//mysql57-community-release-el7-11.noarch.rpm
+Retrieving https://repo.mysql.com//mysql57-community-release-el7-11.noarch.rpm
+warning: /var/tmp/rpm-tmp.IIXkn0: Header V3 DSA/SHA1 Signature, key ID 5072e1f5: NOKEY
+Preparing...                          ################################# [100%]
+Updating / installing...
+   1:mysql57-community-release-el7-11 ################################# [100%]
+
+[root@master-1 mysql]# yum install mysql-community-client
+
+
+[root@master-1 mysql]# mysql -h172.16.201.134 -uroot -proot --port=32306 -e"show databases"
+mysql: [Warning] Using a password on the command line interface can be insecure.
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| mysql              |
+| performance_schema |
++--------------------+
+[root@master-1 mysql]# 
+
+
+数据库联通正常。
