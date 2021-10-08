@@ -1,0 +1,121 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql
+  namespace: default
+type: Opaque
+data:
+  root_pass: bGVlZG9u               # 用base64转码后的字符
+  rep_user: c2xhdmU=
+  rep_pass: c2xhdmVwYXNz
+  
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql
+  namespace: default
+data:
+  master.cnf: |                     # 配置文件自行编写，这里我用于测试只写了最简单的
+    [mysqld]
+    datadir = /var/lib/mysql
+    server_id = 0
+    log_bin = binlog
+  slave.cnf: |
+    [mysqld]
+    datadir = /var/lib/mysql
+    server_id = 0
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysqlsvc
+  labels:
+    app: mysql
+spec:
+  selector:
+    app: mysql
+  clusterIP: None                  # Headless Service
+  ports:
+  - name: mysql
+    port: 3306
+
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+spec:
+  serviceName: mysqlsvc 
+  replicas: 2                     # 3副本就是一主二从
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: mysql
+        image: registry.cn-shenzhen.aliyuncs.com/leedon/mysql-5.6
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: SVC_NAME           # 这里一定要跟service名称一致
+          value: mysqlsvc               
+        - name: SLAVE_HOSTS
+          value: mysql-_.mysqlsvc%
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql
+              key: root_pass
+        - name: REPLIC_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql
+              key: rep_user
+        - name: REPLIC_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql
+              key: rep_pass
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        ports:
+        - name: mysql
+          containerPort: 3306
+        volumeMounts:
+          - name: mysqldata
+            mountPath: /var/lib/mysql
+          - name: configfile
+            mountPath: /etc/mysql
+      volumes:
+      - name: configfile
+        configMap:
+          name: mysql
+          items:
+          - key: master.cnf
+            path: master.cnf
+          - key: slave.cnf
+            path: slave.cnf
+      - name: mysqldata
+        persistentVolumeClaim:
+           claimName: pvc01 
+#  volumeClaimTemplates:         # PVC模板,作用类似于Pod模板, 用于创建与副本相同数量的PVC
+#  - metadata:
+#      name: mysqldata
+#    spec:
+#      storageClassName: nfs
+#      accessModes:
+#      - ReadWriteOnce
+#      resources:
+#        requests:
+#          storage: 1Gi

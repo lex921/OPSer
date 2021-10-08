@@ -1,0 +1,9 @@
+
+kubectl delete -f r.yaml 
+kubectl delete pvc  mysqldata-mysql-0
+kubectl delete -f r-pvc.yaml
+kubectl delete -f r-pv.yaml
+kubectl delete -f r-sc.yaml
+
+echo "============== kubectl get pod,svc,pv,pvc,sc -o wide ================="
+kubectl get pod,svc,pv,pvc,sc -o wide
