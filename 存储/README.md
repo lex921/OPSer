@@ -30,8 +30,11 @@ Kubernetes是如何给存储定义和分类呢？Kubernetes中跟存储相关的
 图片
 社区列举出PersistentVolume的in-tree Plugin，如下图所示。从图中可以看到，Kubernetes通过访问模式给存储分为三大类，RWO/ROX/RWX。这种分类将原有的存储概念混淆，其中包含存储协议，存储开源产品，存储商业产品，公有云存储产品等等。
 
-图片
+<p align="center">
+   <img src="/图库/WX20211008-180050.png" width="700">
+</p>
 如何将Kubernetes中的分类和熟知的存储概念对应起来呢？本文选择将其和应用场景进行类比。
+
 
 块存储通常只支持RWO，比如AWSElasticBlockStore，AzureDisk，有些产品能做到支持ROX，比如GCEPersistentDisk，RBD，ScaleIO等
 
@@ -76,8 +79,10 @@ Kafka，MySQL，Cassandra，PostgreSQL，ElasticSearch，HDFS等应用，本身�
 分布式文件存储包括开源社区的Glusterfs，Cephfs，Lustre，Moosefs，Lizardfs，商业产品中EMC的isilon，IBM的GPFS等。分布式文件存储适合容器场景，但是性能问题比较突出，主要集中在GlusterFS，CephFS，MooseFS/LizardFS。
 
 这里简单对比下开源项目的优缺点，仅供参考。
+<p align="center">
+   <img src="/图库/WX20211008-175802.png" width="700">
+</p>
 
-图片
 Local-Disk方案有明显的缺点，尤其是针对数据库，大数据类的应用。节点故障后，数据的恢复时间长，对业务影响范围广。
 
 传统NAS也是一种文件存储，但是协议网关（机头）是性能瓶颈，传统NAS已经跟不上时代发展的潮流。
