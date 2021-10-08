@@ -65,11 +65,11 @@ Created symlink from /etc/systemd/system/multi-user.target.wants/kubelet.service
 ## 4、部署Kubernetes Master           
 #### 1)master：初始化kubeadm           
 [root@master-1 ~]# kubeadm init \           
-> --apiserver-advertise-address=172.16.201.134 \           
-> --image-repository registry.aliyuncs.com/google_containers \           
-> --kubernetes-version v1.19.9 \           
-> --service-cidr=10.1.0.0/16 \           
-> --pod-network-cidr=10.244.0.0/16           
+] --apiserver-advertise-address=172.16.201.134 \           
+] --image-repository registry.aliyuncs.com/google_containers \           
+] --kubernetes-version v1.19.9 \           
+] --service-cidr=10.1.0.0/16 \           
+] --pod-network-cidr=10.244.0.0/16           
            
 ###### 参数说明：           
 –image-repository string：    这个用于指定从什么位置来拉取镜像（1.13版本才有的），默认值是k8s.gcr.io，我们将其指定为国内镜像地址：registry.aliyuncs.com/google_containers           
@@ -175,7 +175,7 @@ ExecStart=/usr/bin/dockerd --exec-opt native.cgroupdriver=systemd
            
 #### 2)node节点执行加入集群：           
 [root@node-1 yum.repos.d]# kubeadm join 172.16.201.134:6443 --token cdeix4.h84buwepsp1yx14v \           
-> --discovery-token-ca-cert-hash sha256:39475f24cb52cafd15989e7451da8b79dbae87a57f5b10354ee14cf409c449ad           
+] --discovery-token-ca-cert-hash sha256:39475f24cb52cafd15989e7451da8b79dbae87a57f5b10354ee14cf409c449ad           
            
 [preflight] Running pre-flight checks           
         [WARNING IsDockerSystemdCheck]: detected "cgroupfs" as the Docker cgroup driver. The recommended driver is "systemd". Please follow the guide at https://kubernetes.io/docs/setup/cri/           
@@ -344,12 +344,14 @@ subjects:
 - kind: ServiceAccount           
   name: flannel           
   namespace: kube-system           
----           
+---    
 apiVersion: v1           
-kind: ServiceAccount           
-metadata:           
-  name: flannel       
-  namespace: kube-system           
+kind: ServiceAccount  
+
+
+metadata: 
+  name: flannel     
+  namespace: kube-system
 ---           
 kind: ConfigMap           
 apiVersion: v1           
@@ -573,9 +575,9 @@ cdeix4.h84buwepsp1yx14v   23h         2021-09-23T12:04:22+08:00   authentication
 ##### master:           
 [root@master-1 ~]# kubectl get node -o wide           
 NAME       STATUS   ROLES    AGE   VERSION   INTERNAL-IP      EXTERNAL-IP   OS-IMAGE                KERNEL-VERSION           CONTAINER-RUNTIME           
-master-1   Ready    master   42m   v1.19.9   172.16.201.134   <none]        CentOS Linux 7 (Core)   3.10.0-1160.el7.x86_64   docker://19.3.13           
-node-1     Ready    <none]   26m   v1.19.9   172.16.201.135   <none]        CentOS Linux 7 (Core)   3.10.0-1160.el7.x86_64   docker://19.3.13           
-node-2     Ready    <none]   25m   v1.19.9   172.16.201.136   <none]        CentOS Linux 7 (Core)   3.10.0-1160.el7.x86_64   docker://19.3.13           
+master-1   Ready    master   42m   v1.19.9   172.16.201.134   [none]        CentOS Linux 7 (Core)   3.10.0-1160.el7.x86_64   docker://19.3.13           
+node-1     Ready    [none]   26m   v1.19.9   172.16.201.135   [none]        CentOS Linux 7 (Core)   3.10.0-1160.el7.x86_64   docker://19.3.13           
+node-2     Ready    [none]   25m   v1.19.9   172.16.201.136   [none]        CentOS Linux 7 (Core)   3.10.0-1160.el7.x86_64   docker://19.3.13           
            
            
            
@@ -626,11 +628,11 @@ service/nginx exposed
            
 [root@master-1 ~]# kubectl get pod,svc -o wide           
 NAME                         READY   STATUS    RESTARTS   AGE     IP           NODE     NOMINATED NODE   READINESS GATES           
-pod/nginx-6799fc88d8-lkmk7   1/1     Running   0          3m53s   10.244.2.5   node-2   <none]           <none]           
+pod/nginx-6799fc88d8-lkmk7   1/1     Running   0          3m53s   10.244.2.5   node-2   [none]           [none]           
            
 NAME                 TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)        AGE     SELECTOR           
-service/kubernetes   ClusterIP   10.1.0.1      <none]        443/TCP        6h50m   <none]           
-service/nginx        NodePort    10.1.198.44   <none]        80:30698/TCP   2m28s   app=nginx           
+service/kubernetes   ClusterIP   10.1.0.1      [none]        443/TCP        6h50m   [none]           
+service/nginx        NodePort    10.1.198.44   [none]        80:30698/TCP   2m28s   app=nginx           
            
 #### 得到service端口转换后的端口为：80:30698           
            
@@ -652,46 +654,46 @@ deployment.apps/nginx scaled
            
 [root@master-1 ~]# kubectl get pod,svc -o wide           
 NAME                         READY   STATUS              RESTARTS   AGE     IP           NODE     NOMINATED NODE   READINESS GATES           
-pod/nginx-6799fc88d8-c25s6   0/1     ContainerCreating   0          16s     <none]       node-1   <none]           <none]          
-pod/nginx-6799fc88d8-lkmk7   1/1     Running             0          9m34s   10.244.2.5   node-2   <none]           <none]              
-pod/nginx-6799fc88d8-xwjqr   0/1     ContainerCreating   0          16s     <none]       node-2   <none]           <none]          
+pod/nginx-6799fc88d8-c25s6   0/1     ContainerCreating   0          16s     [none]       node-1   [none]           [none]          
+pod/nginx-6799fc88d8-lkmk7   1/1     Running             0          9m34s   10.244.2.5   node-2   [none]           [none]              
+pod/nginx-6799fc88d8-xwjqr   0/1     ContainerCreating   0          16s     [none]       node-2   [none]           [none]          
            
 NAME                 TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)        AGE     SELECTOR           
-service/kubernetes   ClusterIP   10.1.0.1      <none]        443/TCP        6h56m   <none]           
-service/nginx        NodePort    10.1.198.44   <none]        80:30698/TCP   8m9s    app=nginx           
+service/kubernetes   ClusterIP   10.1.0.1      [none]        443/TCP        6h56m   [none]           
+service/nginx        NodePort    10.1.198.44   [none]        80:30698/TCP   8m9s    app=nginx           
       
            
 [root@master-1 ~]# kubectl get pod,svc -o wide           
 NAME                         READY   STATUS    RESTARTS   AGE   IP           NODE     NOMINATED NODE   READINESS GATES           
-pod/nginx-6799fc88d8-c25s6   1/1     Running   0          50s   10.244.1.4   node-1   <none]           <none]           
-pod/nginx-6799fc88d8-lkmk7   1/1     Running   0          10m   10.244.2.5   node-2   <none]           <none]           
-pod/nginx-6799fc88d8-xwjqr   1/1     Running   0          50s   10.244.2.6   node-2   <none]           <none]           
+pod/nginx-6799fc88d8-c25s6   1/1     Running   0          50s   10.244.1.4   node-1   [none]           [none]           
+pod/nginx-6799fc88d8-lkmk7   1/1     Running   0          10m   10.244.2.5   node-2   [none]           [none]           
+pod/nginx-6799fc88d8-xwjqr   1/1     Running   0          50s   10.244.2.6   node-2   [none]           [none]           
            
 NAME                 TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)        AGE     SELECTOR           
-service/kubernetes   ClusterIP   10.1.0.1      <none]        443/TCP        6h56m   <none]           
-service/nginx        NodePort    10.1.198.44   <none]        80:30698/TCP   8m43s   app=nginx           
+service/kubernetes   ClusterIP   10.1.0.1      [none]        443/TCP        6h56m   [none]           
+service/nginx        NodePort    10.1.198.44   [none]        80:30698/TCP   8m43s   app=nginx           
            
          
            
 [root@master-1 ~]# kubectl get pods  --all-namespaces -o wide                   
 NAMESPACE              NAME                                         READY   STATUS    RESTARTS   AGE     IP               NODE       NOMINATED NODE   READINESS GATES           
-default                nginx-6799fc88d8-c25s6                       1/1     Running   0          11m     10.244.1.4       node-1     <none]           <none]           
-default                nginx-6799fc88d8-lkmk7                       1/1     Running   0          20m     10.244.2.5       node-2     <none]           <none]           
-default                nginx-6799fc88d8-xwjqr                       1/1     Running   0          11m     10.244.2.6       node-2     <none]           <none]           
-kube-system            coredns-6d56c8448f-mp5lz                     1/1     Running   0          7h6m    10.244.1.2       node-1     <none]           <none]           
-kube-system            coredns-6d56c8448f-wnqxj                     1/1     Running   0          7h6m    10.244.2.2       node-2     <none]           <none]           
-kube-system            etcd-master-1                                1/1     Running   1          7h6m    172.16.201.134   master-1   <none]           <none]           
-kube-system            kube-apiserver-master-1                      1/1     Running   1          7h6m    172.16.201.134   master-1   <none]           <none]           
-kube-system            kube-controller-manager-master-1             1/1     Running   1          6h21m   172.16.201.134   master-1   <none]           <none]           
-kube-system            kube-flannel-ds-mmhsm                        1/1     Running   0          6h29m   172.16.201.135   node-1     <none]           <none]           
-kube-system            kube-flannel-ds-rz2xj                        1/1     Running   1          6h29m   172.16.201.134   master-1   <none]           <none]           
-kube-system            kube-flannel-ds-ts9fm                        1/1     Running   0          6h29m   172.16.201.136   node-2     <none]           <none]           
-kube-system            kube-proxy-bkck2                             1/1     Running   0          6h50m   172.16.201.135   node-1     <none]           <none]           
-kube-system            kube-proxy-c6fdx                             1/1     Running   1          7h6m    172.16.201.134   master-1   <none]           <none]           
-kube-system            kube-proxy-phjdh                             1/1     Running   0          6h50m   172.16.201.136   node-2     <none]           <none]           
-kube-system            kube-scheduler-master-1                      1/1     Running   1          6h21m   172.16.201.134   master-1   <none]           <none]           
-kubernetes-dashboard   dashboard-metrics-scraper-79c5968bdc-bcm4d   1/1     Running   0          5h1m    10.244.1.3       node-1     <none]           <none]           
-kubernetes-dashboard   kubernetes-dashboard-9f9799597-529zk         1/1     Running   0          5h1m    10.244.2.4       node-2     <none]           <none]           
+default                nginx-6799fc88d8-c25s6                       1/1     Running   0          11m     10.244.1.4       node-1     [none]           [none]           
+default                nginx-6799fc88d8-lkmk7                       1/1     Running   0          20m     10.244.2.5       node-2     [none]           [none]           
+default                nginx-6799fc88d8-xwjqr                       1/1     Running   0          11m     10.244.2.6       node-2     [none]           [none]           
+kube-system            coredns-6d56c8448f-mp5lz                     1/1     Running   0          7h6m    10.244.1.2       node-1     [none]           [none]           
+kube-system            coredns-6d56c8448f-wnqxj                     1/1     Running   0          7h6m    10.244.2.2       node-2     [none]           [none]           
+kube-system            etcd-master-1                                1/1     Running   1          7h6m    172.16.201.134   master-1   [none]           [none]           
+kube-system            kube-apiserver-master-1                      1/1     Running   1          7h6m    172.16.201.134   master-1   [none]           [none]           
+kube-system            kube-controller-manager-master-1             1/1     Running   1          6h21m   172.16.201.134   master-1   [none]           [none]           
+kube-system            kube-flannel-ds-mmhsm                        1/1     Running   0          6h29m   172.16.201.135   node-1     [none]           [none]           
+kube-system            kube-flannel-ds-rz2xj                        1/1     Running   1          6h29m   172.16.201.134   master-1   [none]           [none]           
+kube-system            kube-flannel-ds-ts9fm                        1/1     Running   0          6h29m   172.16.201.136   node-2     [none]           [none]           
+kube-system            kube-proxy-bkck2                             1/1     Running   0          6h50m   172.16.201.135   node-1     [none]           [none]           
+kube-system            kube-proxy-c6fdx                             1/1     Running   1          7h6m    172.16.201.134   master-1   [none]           [none]           
+kube-system            kube-proxy-phjdh                             1/1     Running   0          6h50m   172.16.201.136   node-2     [none]           [none]           
+kube-system            kube-scheduler-master-1                      1/1     Running   1          6h21m   172.16.201.134   master-1   [none]           [none]           
+kubernetes-dashboard   dashboard-metrics-scraper-79c5968bdc-bcm4d   1/1     Running   0          5h1m    10.244.1.3       node-1     [none]           [none]           
+kubernetes-dashboard   kubernetes-dashboard-9f9799597-529zk         1/1     Running   0          5h1m    10.244.2.4       node-2     [none]           [none]           
            
            
            
@@ -712,13 +714,13 @@ kubernetes-dashboard   Active   5h17m
 ###### 查看namespace的service信息：           
 [root@master-1 ~]# kubectl get service -o wide --namespace=default           
 NAME         TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)        AGE     SELECTOR           
-kubernetes   ClusterIP   10.1.0.1      <none]        443/TCP        7h22m   <none]           
-nginx        NodePort    10.1.198.44   <none]        80:30698/TCP   34m     app=nginx           
+kubernetes   ClusterIP   10.1.0.1      [none]        443/TCP        7h22m   [none]           
+nginx        NodePort    10.1.198.44   [none]        80:30698/TCP   34m     app=nginx           
            
 另一种写法：           
 [root@master-1 ~]# kubectl get service/nginx           
 NAME    TYPE       CLUSTER-IP    EXTERNAL-IP   PORT(S)        AGE           
-nginx   NodePort   10.1.198.44   <none]        80:30698/TCP   43m           
+nginx   NodePort   10.1.198.44   [none]        80:30698/TCP   43m           
            
            
 ###### 查看svc nginx日志           
@@ -726,25 +728,25 @@ nginx   NodePort   10.1.198.44   <none]        80:30698/TCP   43m
 Name:                     nginx           
 Namespace:                default           
 Labels:                   app=nginx           
-Annotations:              <none]           
+Annotations:              [none]           
 Selector:                 app=nginx           
 Type:                     NodePort           
 IP:                       10.1.198.44           
-Port:                     <unset]  80/TCP           
+Port:                     [unset]  80/TCP           
 TargetPort:               80/TCP           
-NodePort:                 <unset]  30698/TCP           
+NodePort:                 [unset]  30698/TCP           
 Endpoints:                10.244.1.4:80,10.244.2.5:80,10.244.2.6:80           
 Session Affinity:         None           
 External Traffic Policy:  Cluster           
-Events:                   <none]           
+Events:                   [none]           
 [root@master-1 ~]#            
            
 ###### 查看pod name           
 [root@master-1 ~]# kubectl get pod -o wide           
 NAME                     READY   STATUS    RESTARTS   AGE   IP           NODE     NOMINATED NODE   READINESS GATES           
-nginx-6799fc88d8-c25s6   1/1     Running   0          24m   10.244.1.4   node-1   <none]           <none]           
-nginx-6799fc88d8-lkmk7   1/1     Running   0          34m   10.244.2.5   node-2   <none]           <none]           
-nginx-6799fc88d8-xwjqr   1/1     Running   0          24m   10.244.2.6   node-2   <none]           <none]           
+nginx-6799fc88d8-c25s6   1/1     Running   0          24m   10.244.1.4   node-1   [none]           [none]           
+nginx-6799fc88d8-lkmk7   1/1     Running   0          34m   10.244.2.5   node-2   [none]           [none]           
+nginx-6799fc88d8-xwjqr   1/1     Running   0          24m   10.244.2.6   node-2   [none]           [none]           
 [root@master-1 ~]#            
 [root@master-1 ~]#            
 [root@master-1 ~]#            
@@ -758,7 +760,7 @@ Node:         node-1/172.16.201.135
 Start Time:   Wed, 22 Sep 2021 19:00:21 +0800           
 Labels:       app=nginx           
               pod-template-hash=6799fc88d8           
-Annotations:  <none>           
+Annotations:  [none]           
 Status:       Running           
 IP:           10.244.1.4           
 IPs:           
@@ -769,13 +771,13 @@ Containers:
     Container ID:   docker://5cf5621c44344d802efb5d3c565aeaf98ce7f67732c009a10d798bf9919737d4           
     Image:          nginx           
     Image ID:       docker-pullable://nginx@sha256:853b221d3341add7aaadf5f81dd088ea943ab9c918766e295321294b035f3f3e           
-    Port:           <none]           
-    Host Port:      <none]           
+    Port:           [none]           
+    Host Port:      [none]           
     State:          Running           
       Started:      Wed, 22 Sep 2021 19:00:55 +0800           
     Ready:          True           
     Restart Count:  0           
-    Environment:    <none]           
+    Environment:    [none]           
     Mounts:           
       /var/run/secrets/kubernetes.io/serviceaccount from default-token-b4d9n (ro)           
 Conditions:           
@@ -790,7 +792,7 @@ Volumes:
     SecretName:  default-token-b4d9n           
     Optional:    false           
 QoS Class:       BestEffort           
-Node-Selectors:  <none]           
+Node-Selectors:  [none]           
 Tolerations:     node.kubernetes.io/not-ready:NoExecute op=Exists for 300s           
                  node.kubernetes.io/unreachable:NoExecute op=Exists for 300s           
 Events:           
@@ -821,5 +823,5 @@ service "nginx" deleted
            
 [root@master-1 ~]#  kubectl get pod,svc -o wide                   
 NAME                 TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE   SELECTOR           
-service/kubernetes   ClusterIP   10.1.0.1     <none>        443/TCP   28h   <none>           
+service/kubernetes   ClusterIP   10.1.0.1     [none]        443/TCP   28h   [none]           
            
