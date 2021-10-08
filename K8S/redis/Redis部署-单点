@@ -1,0 +1,301 @@
+Redis单点部署 
+
+
+[root@master-1 mysql]# cat ra
+kubectl apply -f r-sc.yaml
+kubectl apply -f r-pv.yaml
+kubectl apply -f r-pvc.yaml
+
+kubectl apply -f redis-config.yaml
+kubectl apply -f redis-deployment.yaml
+
+sleep 2
+echo "============== kubectl get ns,cm,pod,svc,pv,pvc,sc -o wide ================="
+kubectl get ns,cm,pod,svc,pv,pvc,sc -o wide
+
+
+[root@master-1 redis]# cat rd
+kubectl delete -f r-pvc.yaml
+kubectl delete -f r-pv.yaml
+kubectl delete -f r-sc.yaml
+
+kubectl delete -f redis-deployment.yaml
+kubectl delete -f redis-config.yaml
+
+sleep 2
+echo "============== kubectl get pod,svc,pv,pvc,sc -o wide ================="
+kubectl get pod,svc,pv,pvc,sc -o wide
+
+
+
+[root@master-1 redis]# cat r-sc.yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: kubernetes.io/nfs
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
+
+
+[root@master-1 redis]# cat r-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv01
+spec:
+  storageClassName: nfs      
+  capacity:                  # PV容量
+    storage: 1Gi
+  accessModes:               # 访问模式
+  - ReadWriteOnce
+  nfs:
+    path: /root/web1
+    server: "172.16.201.134"
+  volumeMode: Filesystem
+
+
+[root@master-1 redis]# cat r-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc01
+spec:
+  storageClassName: nfs   # 只能绑定nfs类的PV
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+
+
+
+
+
+
+[root@master-1 redis]# cat redis-config.yaml
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: redis-config
+  labels:
+    app: redis
+data:
+  redis.conf: |-
+    dir /data
+    port 6379
+    bind 0.0.0.0
+    appendonly yes
+    protected-mode no
+    requirepass zisefeizhu
+    pidfile /data/redis-6379.pid
+
+
+[root@master-1 redis]# cat redis-deployment.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+  selector:
+    app: redis
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      initContainers:
+        - name: system-init
+          image: busybox:1.32
+          imagePullPolicy: IfNotPresent
+          command:
+            - "sh"
+            - "-c"
+            - "echo 2048 > /proc/sys/net/core/somaxconn && echo never > /sys/kernel/mm/transparent_hugepage/enabled"
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+          - name: sys
+            mountPath: /sys
+      containers:
+        - name: redis
+          image: redis:5.0.8
+          command:
+            - "sh"
+            - "-c"
+            - "redis-server /usr/local/etc/redis/redis.conf"
+          ports:
+            - containerPort: 6379
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+            requests:
+              cpu: 1000m
+              memory: 1024Mi
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 300
+            timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          volumeMounts:
+            - name: rdata
+              mountPath: /data
+            - name: config
+              mountPath: /usr/local/etc/redis/redis.conf
+              subPath: redis.conf
+      volumes:
+        - name: rdata
+          persistentVolumeClaim:
+            claimName: pvc01
+        - name: config
+          configMap:
+            name: redis-config
+        - name: sys
+          hostPath:
+            path: /sys
+[root@master-1 redis]# 
+
+
+
+
+
+[root@master-1 redis]# kubectl get ns,cm,pod,svc,pv,pvc,sc -o wide
+NAME                        STATUS   AGE
+namespace/default           Active   7d2h
+namespace/ingress-nginx     Active   4d21h
+namespace/kube-node-lease   Active   7d2h
+namespace/kube-public       Active   7d2h
+namespace/kube-system       Active   7d2h
+namespace/ng                Active   40h
+namespace/test-ns           Active   5d19h
+
+NAME                     DATA   AGE
+configmap/redis-config   1      18h
+
+NAME                         READY   STATUS    RESTARTS   AGE   IP            NODE     NOMINATED NODE   READINESS GATES
+pod/redis-5bffdfbd94-fsv8x   1/1     Running   0          8h    10.244.2.43   node-2   <none>           <none>
+
+NAME                 TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)    AGE    SELECTOR
+service/kubernetes   ClusterIP   10.1.0.1      <none>        443/TCP    7d2h   <none>
+service/redis        ClusterIP   10.1.89.238   <none>        6379/TCP   18h    app=redis
+
+NAME                    CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM           STORAGECLASS   REASON   AGE   VOLUMEMODE
+persistentvolume/pv01   1Gi        RWO            Retain           Bound    default/pvc01   nfs                     18h   Filesystem
+
+NAME                          STATUS   VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE   VOLUMEMODE
+persistentvolumeclaim/pvc01   Bound    pv01     1Gi        RWO            nfs            18h   Filesystem
+
+NAME                                        PROVISIONER         RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+storageclass.storage.k8s.io/nfs (default)   kubernetes.io/nfs   Retain          Immediate           false                  18h
+
+
+
+
+
+######测试redis是否可以正常使用
+[root@master-1 redis]# kubectl exec -it pod/redis-5bffdfbd94-fsv8x -- /bin/sh
+######redis-cli
+
+127.0.0.1:6379> auth zisefeizhu
+OK
+127.0.0.1:6379> config get requirepass
+1) "requirepass"
+2) "zisefeizhu"
+127.0.0.1:6379> 
+
+
+
+问题：
+[root@master-1 redis]# ./rd
+service "redis" deleted
+deployment.apps "redis" deleted
+configmap "redis-config" deleted
+persistentvolumeclaim "pvc01" deleted
+hang在这里不动了，无法清理
+解决：
+[root@master-1 mysql]# kubectl patch pvc pvc01 -p '{"metadata":{"finalizers": []}}' --type=merge         
+persistentvolumeclaim/pvc01 patched
+
+
+
+问题：无法清理pod
+清理Docker占用的磁盘空间
+// 可以用于清理磁盘，删除关闭的容器、无用的数据卷和网络
+[root@master-1 redis]#  docker system prune -a
+WARNING! This will remove:
+  - all stopped containers
+  - all networks not used by at least one container
+  - all images without at least one container associated to them
+  - all build cache
+
+Are you sure you want to continue? [y/N] y
+Deleted Containers:
+。。。。。。。。。。。
+Total reclaimed space: 1.462GB
+
+pod还在
+[root@master-1 redis]# kubectl get pods -o wide                      
+NAME                     READY   STATUS        RESTARTS   AGE   IP       NODE     NOMINATED NODE   READINESS GATES
+redis-5bffdfbd94-9r6rm   0/1     Terminating   0          53m   <none>   node-1   <none>           <none>
+
+去node-1上，手动删除
+
+
+[root@node-1 ~]# docker ps -a|grep redis
+8025db9ac01f        busybox                                              "sh -c 'echo 2048 > …"   53 minutes ago      Created                                           k8s_system-init_redis-5bffdfbd94-9r6rm_default_9305e987-644d-480b-a19e-ed2d64262d2b_0
+9642213831f5        registry.aliyuncs.com/google_containers/pause:3.2    "/pause"                 53 minutes ago      Exited (137) 52 minutes ago                       k8s_POD_redis-5bffdfbd94-9r6rm_default_9305e987-644d-480b-a19e-ed2d64262d2b_0
+1ae1bdb2a6d0        registry.aliyuncs.com/google_containers/pause:3.2    "/pause"                 14 hours ago        Exited (255) 8 hours ago                          k8s_POD_redis-5bffdfbd94-ssnhr_default_4fc56a08-a3fe-47ef-b371-88ddd4af6d13_0
+[root@node-1 ~]# 
+[root@node-1 ~]# 
+[root@node-1 ~]# 
+[root@node-1 ~]# docker rm 8025db9ac01f 
+8025db9ac01f
+[root@node-1 ~]# docker rm 9642213831f5
+9642213831f5
+[root@node-1 ~]# docker rm 1ae1bdb2a6d0
+1ae1bdb2a6d0
+
+简单粗暴，pod被干掉了：
+[root@master-1 ~]# kubectl get pods -o wide                      
+No resources found in default namespace.
+[root@master-1 ~]# 
+
