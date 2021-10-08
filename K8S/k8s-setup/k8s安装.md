@@ -36,20 +36,20 @@ Dependency Installed:
 Complete!
 
 
-######安装包说明
+###### 安装包说明
 kubelet 运行在集群所有节点上，用于启动Pod和容器等对象的工具
 kubeadm 用于初始化集群，启动集群的命令工具
 kubectl 用于和集群通信的命令行，通过kubectl可以部署和管理应用，查看各种资源，创建、删除和更新各种组件
 
 
-######报错： 
+###### 报错： 
 Failing package is: kubectl-1.16.2-0.x86_64
 GPG Keys are configured as: https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg
 
 解：用--nogpgcheck跳过key校验
 
 
-######此时，还不能启动kubelet，因为此时配置还不能，现在仅仅可以设置开机自启动
+###### 此时，还不能启动kubelet，因为此时配置还不能，现在仅仅可以设置开机自启动
 [root@master-1 ~]# systemctl enable kubelet 
 Created symlink from /etc/systemd/system/multi-user.target.wants/kubelet.service to /usr/lib/systemd/system/kubelet.service.
 [root@node-1 yum.repos.d]# systemctl enable kubelet 
@@ -71,7 +71,7 @@ Created symlink from /etc/systemd/system/multi-user.target.wants/kubelet.service
 > --service-cidr=10.1.0.0/16 \
 > --pod-network-cidr=10.244.0.0/16
 
-######参数说明：
+###### 参数说明：
 –image-repository string：    这个用于指定从什么位置来拉取镜像（1.13版本才有的），默认值是k8s.gcr.io，我们将其指定为国内镜像地址：registry.aliyuncs.com/google_containers
 –kubernetes-version string： 指定kubenets版本号，默认值是stable-1，会导致从https://dl.k8s.io/release/stable-1.txt下载最新的版本号，我们可以将其指定为固定版本（v1.15.1）来跳过网络请求。
 –apiserver-advertise-address  指明用 Master 的哪个 interface 与 Cluster 的其他节点通信。如果 Master 有多个 interface，建议明确指定，如果不指定，kubeadm 会自动选择有默认网关的 interface。
@@ -153,10 +153,10 @@ kubeadm join 172.16.201.134:6443 --token cdeix4.h84buwepsp1yx14v \
 [root@master-1 ~]# 
 
 ##### 注意：
-建议至少2 cpu ,2G，非硬性要求，1cpu，1G也可以搭建起集群。
-1个cpu的话初始化master的时候会报 [WARNING NumCPU]: the number of available CPUs 1 is less than the required 2
-部署插件或者pod时可能会报warning：FailedScheduling：Insufficient cpu, Insufficient memory
-如果出现这种提示，说明你的虚拟机分配的CPU为1核，需要重新设置虚拟机master节点内核数。
+建议至少2 cpu ,2G，非硬性要求，1cpu，1G也可以搭建起集群。     
+1个cpu的话初始化master的时候会报 [WARNING NumCPU]: the number of available CPUs 1 is less than the required 2         
+部署插件或者pod时可能会报warning：FailedScheduling：Insufficient cpu, Insufficient memory              
+如果出现这种提示，说明你的虚拟机分配的CPU为1核，需要重新设置虚拟机master节点内核数。           
 
 
 ##### 问题：
@@ -165,7 +165,7 @@ kubeadm join 172.16.201.134:6443 --token cdeix4.h84buwepsp1yx14v \
 ##### 解决
 更改docker的启动参数
 $ vim /usr/lib/systemd/system/docker.service
-#####ExecStart=/usr/bin/dockerd
+#ExecStart=/usr/bin/dockerd
 ExecStart=/usr/bin/dockerd --exec-opt native.cgroupdriver=systemd
 重启docker
 [root@master-1 ~]# systemctl daemon-reload
@@ -242,18 +242,17 @@ registry.aliyuncs.com/google_containers/pause                     3.2           
 
 
 
-#### 6) master:安装Pod网络插件（CNI）(master)
-master:目前是NotReady
-[root@master-1 kubernetes]#  kubectl get nodes
-NAME       STATUS     ROLES    AGE   VERSION
-master-1   NotReady   master   30m   v1.19.9
-node-1     NotReady   <none>   13m   v1.19.9
-node-2     NotReady   <none>   13m   v1.19.9
+#### 6) master:安装Pod网络插件（CNI）(master)        
+master:目前是NotReady     
+[root@master-1 kubernetes]#  kubectl get nodes        
+NAME       STATUS     ROLES    AGE   VERSION                
+master-1   NotReady   master   30m   v1.19.9  
+node-1     NotReady   [none]   13m   v1.19.9  
+node-2     NotReady   [none]    13m   v1.19.9        
 
 
-[root@master-1 ~]#wget https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
-
-[root@master-1 ~]# cat kube-flannel.yml
+[root@master-1 ~]#wget https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml      
+[root@master-1 ~]# cat kube-flannel.yml       
 ---
 apiVersion: policy/v1beta1
 kind: PodSecurityPolicy
@@ -477,7 +476,8 @@ spec:
       - name: flannel-cfg
         configMap:
           name: kube-flannel-cfg
-[root@master-1 ~]# 
+[root@master-1 ~]#            
+  
 
 #### 7)master:安装 ，执行命令：
 [root@master-1 ~]#kubectl apply -f kube-flannel.yml
