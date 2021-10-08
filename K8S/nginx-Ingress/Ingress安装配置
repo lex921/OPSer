@@ -1,0 +1,817 @@
+
+(一)、DaemonSet+HostNetwork部署ingress-controller的方式
+###1、基础环境准备（ingress、httpd、tomcat安装、部署）
+
+Ingress-Nginx官网地址
+https://kubernetes.github.io/ingress-nginx/
+
+Ingress-Nginx GitHub地址
+https://github.com/kubernetes/ingress-nginx
+
+
+    internet
+        |
+   [ Ingress ]
+   --|-----|--
+   [ Services ]
+
+#####Ingress-nginx介绍：
+
+在Kubernetes中，服务和Pod的IP地址仅可以在集群网络内部使用，对于集群外的应用是不可见的。为了使外部的应用能够访问集群内的服务，在Kubernetes中目前提供了以下几种方案：
+* NodePort
+* LoadBalancer
+* Ingress
+在之前的博文中介绍过NodePort，简单来说，就是通过service这种资源对象，为后端pod提供一个统一的访问接口，然后将service的统一访问接口映射到群集节点上，最终实现client通过映射到群集节点上的端口访问到后端pod提供的服务。
+
+但是，这种方式有一个弊端，就是当新生成一个pod服务就需要创建对应的service将其映射到节点端口，当运行的pod过多时，我们节点暴露给client端的端口也会随之增加，这样我们整个k8s群集的危险系数就会增加，因为我们在搭建群集之处，官方明确指出，必须关闭firewalld防火墙及清空iptables规则，现在我们又暴露了那么多端口给client，安全系数可想而知。
+
+
+1、Ingress-nginx组成
+
+* ingress-nginx-controller：根据用户编写的ingress规则（创建的ingress的yaml文件），
+ 动态的去更改nginx服务的配置文件，并且reload重载使其生效（是自动化的，通过lua脚本来实现）；
+* ingress资源对象：将Nginx的配置抽象成一个Ingress对象，每添加一个新的Service资
+ 源对象只需写一个新的Ingress规则的yaml文件即可（或修改已存在的ingress规则的yaml文件）
+
+2、Ingress-nginx可以解决什么问题？
+
+1)动态配置服务
+　　如果按照传统方式, 当新增加一个服务时, 我们可能需要在流量入口加一个反向代理指
+	向我们新的k8s服务. 而如果用了Ingress-nginx, 只需要配置好这个服务, 当服务启动
+	时, 会自动注册到Ingress的中, 不需要而外的操作。
+2)减少不必要的端口映射
+　　配置过k8s的都清楚, 第一步是要关闭防火墙的, 主要原因是k8s的很多服务会
+	以NodePort方式映射出去, 这样就相当于给宿主机打了很多孔, 既不安全也不优雅. 
+	而Ingress可以避免这个问题, 除了Ingress自身服务可能需要映射出去, 其他服务都不要
+	用NodePort方式
+
+3、Ingress-nginx工作原理
+
+登录后复制
+1）ingress controller通过和kubernetes api交互，动态的去感知集群中ingress规则变化，
+2）然后读取它，按照自定义的规则，规则就是写明了哪个域名对应哪个service，生成一段nginx配置，
+3）再写到nginx-ingress-controller的pod里，这个Ingress controller的pod里运行着一个Nginx服务，控制器会把生成的nginx配置写入/etc/nginx.conf文件中，
+4）然后reload一下使配置生效。以此达到域名分别配置和动态更新的问题。
+
+
+
+Ingress为弥补NodePort不足而生
+NodePort存在的不足：
+一个端口只能一个服务使用，端口需提前规划
+只支持4层负载均衡
+
+Pod与Ingress的关系“”
+通过Service相关联
+通过Ingress Controller实现Pod的负载均衡
+支持TCP/UDP 4层和HTTP 7层
+
+
+
+####可能有些人会对ingress-controller和ingress这两个概念不理解，会感觉太抽象。
+做个简单的比喻：
+1、ingress-controller相当于在pod中部署了一个“nginx”的负载均衡器，对外只需要暴露这个负载均衡器的端口；
+2、ingress则相当于在“nginx”中创建代理的配置文件，指定访问过来的流量被转发到哪个service资源。
+
+下面是一个大概的对照关系：
+ingress-controller——>>>nginx
+ingress———————>>/etc/nginx/conf.d/xxx.com.conf文件
+
+如您发现文中有错误，请评论区留言指导博主改正，谢谢。
+
+
+
+######测试环境架构：
+
+                           | -> 172.16.201.135 ->   /         service1:80
+                           |                        /tomcat   service2:80
+ www.test01.com -> vip->   |
+                           |
+                           | -> 172.16.201.136 ->   /         service1:80
+                                                    /tomcat   service2:80
+
+
+wget https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.0.1/deploy/static/provider/cloud/deploy.yaml
+
+######v1.0.0测试可用
+wget https://github.com/kubernetes/ingress-nginx/blob/controller-v1.0.0/deploy/static/provider/exoscale/deploy.yaml
+
+
+
+######官方ingress、service 文档（语法参考）：
+https://kubernetes.io/zh/docs/concepts/services-networking/ingress/
+https://kubernetes.io/zh/docs/concepts/services-networking/service/
+
+
+####1)ingress部署
+
+
+
+
+
+######yaml文件配置修改
+[root@k8s-master ingress]# vim ingress-deploy.yaml
+………………
+apiVersion: apps/v1
+kind: DaemonSet   # 从Deployment改为DaemonSet
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+  labels:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/part-of: ingress-nginx
+spec:
+  #replicas: 1   # 注释掉
+………………
+      nodeSelector:
+      # 如下几行为新加行  作用【允许在master节点运行】
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+………………
+          ports:
+            - name: http
+              containerPort: 80
+              hostPort: 80    # 添加处【可在宿主机通过该端口访问Pod】
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              hostPort: 443   # 添加处【可在宿主机通过该端口访问Pod】
+              protocol: TCP
+………………
+
+
+[root@master-1 ~]# kubectl apply -f ingress-deploy.yaml
+namespace/ingress-nginx created
+serviceaccount/ingress-nginx created
+configmap/ingress-nginx-controller created
+clusterrole.rbac.authorization.k8s.io/ingress-nginx created
+clusterrolebinding.rbac.authorization.k8s.io/ingress-nginx created
+role.rbac.authorization.k8s.io/ingress-nginx created
+rolebinding.rbac.authorization.k8s.io/ingress-nginx created
+service/ingress-nginx-controller-admission created
+service/ingress-nginx-controller created
+deployment.apps/ingress-nginx-controller created
+ingressclass.networking.k8s.io/nginx created
+validatingwebhookconfiguration.admissionregistration.k8s.io/ingress-nginx-admission created
+serviceaccount/ingress-nginx-admission created
+clusterrole.rbac.authorization.k8s.io/ingress-nginx-admission created
+clusterrolebinding.rbac.authorization.k8s.io/ingress-nginx-admission created
+role.rbac.authorization.k8s.io/ingress-nginx-admission created
+rolebinding.rbac.authorization.k8s.io/ingress-nginx-admission created
+job.batch/ingress-nginx-admission-create created
+job.batch/ingress-nginx-admission-patch created
+
+
+
+
+
+
+[root@master-1 ~]# kubectl get ns   
+NAME              STATUS   AGE
+default           Active   30h
+ingress-nginx     Active   15m
+kube-node-lease   Active   30h
+kube-public       Active   30h
+kube-system       Active   30h
+test-ns           Active   7s
+
+
+
+[root@master-1 ~]# kubectl get pod -n ingress-nginx -o wide
+NAME                                       READY   STATUS              RESTARTS   AGE   IP       NODE     NOMINATED NODE   READINESS GATES
+ingress-nginx-admission-create-4wp6d   0/1     ContainerCreating   0          75m   10.244.2.35      node-2   <none>           <none>
+ingress-nginx-admission-patch-glk59    0/1     ContainerCreating   0          75m   10.244.1.31      node-1   <none>           <none>
+ingress-nginx-controller-s7x2z         1/1     ContainerCreating     0        75m   172.16.201.136   node-2   <none>           <none>
+ingress-nginx-controller-xf68j         1/1     ContainerCreating     0        75m   172.16.201.135   node-1   <none>           <none>
+
+
+[root@master-1 ~]# kubectl get pod -n ingress-nginx -o wide
+NAME                                   READY   STATUS      RESTARTS   AGE   IP               NODE     NOMINATED NODE   READINESS GATES
+ingress-nginx-admission-create-4wp6d   0/1     Completed   0          75m   10.244.2.35      node-2   <none>           <none>
+ingress-nginx-admission-patch-glk59    0/1     Completed   0          75m   10.244.1.31      node-1   <none>           <none>
+ingress-nginx-controller-s7x2z         1/1     Running     0          75m   172.16.201.136   node-2   <none>           <none>
+ingress-nginx-controller-xf68j         1/1     Running     0          75m   172.16.201.135   node-1   <none>           <none>
+
+
+
+[root@master-1 ~]# kubectl get pods  --all-namespaces -o wide
+NAMESPACE       NAME                                   READY   STATUS      RESTARTS   AGE     IP               NODE       NOMINATED NODE   READINESS GATES
+ingress-nginx   ingress-nginx-admission-create-4wp6d   0/1     Completed   0          76m     10.244.2.35      node-2     <none>           <none>
+ingress-nginx   ingress-nginx-admission-patch-glk59    0/1     Completed   0          76m     10.244.1.31      node-1     <none>           <none>
+ingress-nginx   ingress-nginx-controller-s7x2z         1/1     Running     0          76m     172.16.201.136   node-2     <none>           <none>
+ingress-nginx   ingress-nginx-controller-xf68j         1/1     Running     0          76m     172.16.201.135   node-1     <none>           <none>
+kube-system     coredns-6d56c8448f-mp5lz               1/1     Running     0          2d5h    10.244.1.2       node-1     <none>           <none>
+kube-system     coredns-6d56c8448f-wnqxj               1/1     Running     0          2d5h    10.244.2.2       node-2     <none>           <none>
+kube-system     etcd-master-1                          1/1     Running     2          2d5h    172.16.201.134   master-1   <none>           <none>
+kube-system     kube-apiserver-master-1                1/1     Running     20         2d5h    172.16.201.134   master-1   <none>           <none>
+kube-system     kube-controller-manager-master-1       1/1     Running     6          2d5h    172.16.201.134   master-1   <none>           <none>
+kube-system     kube-flannel-ds-mmhsm                  1/1     Running     0          2d5h    172.16.201.135   node-1     <none>           <none>
+kube-system     kube-flannel-ds-rz2xj                  1/1     Running     2          2d5h    172.16.201.134   master-1   <none>           <none>
+kube-system     kube-flannel-ds-ts9fm                  1/1     Running     0          2d5h    172.16.201.136   node-2     <none>           <none>
+kube-system     kube-proxy-bkck2                       1/1     Running     0          2d5h    172.16.201.135   node-1     <none>           <none>
+kube-system     kube-proxy-c6fdx                       1/1     Running     2          2d5h    172.16.201.134   master-1   <none>           <none>
+kube-system     kube-proxy-phjdh                       1/1     Running     0          2d5h    172.16.201.136   node-2     <none>           <none>
+kube-system     kube-scheduler-master-1                1/1     Running     6          2d5h    172.16.201.134   master-1   <none>           <none>
+
+
+
+
+
+[root@master-1 ~]# kubectl get services -o wide --all-namespaces
+NAMESPACE       NAME                                 TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)                  AGE     SELECTOR
+default         kubernetes                           ClusterIP      10.1.0.1       <none>        443/TCP                  2d5h    <none>
+ingress-nginx   ingress-nginx-controller-admission   LoadBalancer   10.1.255.129   <pending>     443:30155/TCP            76m     app.kubernetes.io/component=controller,app.kubernetes.io/instance=ingress-nginx,app.kubernetes.io/name=ingress-nginx
+kube-system     kube-dns                             ClusterIP      10.1.0.10      <none>        53/UDP,53/TCP,9153/TCP   2d5h    k8s-app=kube-dns
+test-ns         httpd-svc                            ClusterIP      10.1.142.189   <none>        80/TCP                   6h35m   k8s-app=httpd01
+test-ns         tomcat-svc                           ClusterIP      10.1.29.129    <none>        8080/TCP                 21h     k8s-app=tomcat01
+
+
+
+[root@master-1 ~]# kubectl get services -o wide --all-namespaces|grep ingress-nginx
+ingress-nginx   ingress-nginx-controller-admission   LoadBalancer   10.1.255.129   <pending>     443:30155/TCP            77m     app.kubernetes.io/component=controller,app.kubernetes.io/instance=ingress-nginx,app.kubernetes.io/name=ingress-nginx
+
+
+
+[root@master-1 ~]#  kubectl delete -f ingress-deploy.yaml
+namespace "ingress-nginx" deleted
+serviceaccount "ingress-nginx" deleted
+configmap "ingress-nginx-controller" deleted
+clusterrole.rbac.authorization.k8s.io "ingress-nginx" deleted
+clusterrolebinding.rbac.authorization.k8s.io "ingress-nginx" deleted
+role.rbac.authorization.k8s.io "ingress-nginx" deleted
+rolebinding.rbac.authorization.k8s.io "ingress-nginx" deleted
+service "ingress-nginx-controller-admission" deleted
+service "ingress-nginx-controller" deleted
+deployment.apps "ingress-nginx-controller" deleted
+ingressclass.networking.k8s.io "nginx" deleted
+validatingwebhookconfiguration.admissionregistration.k8s.io "ingress-nginx-admission" deleted
+serviceaccount "ingress-nginx-admission" deleted
+clusterrole.rbac.authorization.k8s.io "ingress-nginx-admission" deleted
+clusterrolebinding.rbac.authorization.k8s.io "ingress-nginx-admission" deleted
+role.rbac.authorization.k8s.io "ingress-nginx-admission" deleted
+rolebinding.rbac.authorization.k8s.io "ingress-nginx-admission" deleted
+job.batch "ingress-nginx-admission-create" deleted
+job.batch "ingress-nginx-admission-patch" deleted
+
+
+查看启动情况
+[root@master-1 ~]# kubectl get pod -n ingress-nginx -o wide
+NAME                                   READY   STATUS      RESTARTS   AGE   IP               NODE     NOMINATED NODE   READINESS GATES
+ingress-nginx-admission-create-4wp6d   0/1     Completed   0          77m   10.244.2.35      node-2   <none>           <none>
+ingress-nginx-admission-patch-glk59    0/1     Completed   0          77m   10.244.1.31      node-1   <none>           <none>
+ingress-nginx-controller-s7x2z         1/1     Running     0          77m   172.16.201.136   node-2   <none>           <none>
+ingress-nginx-controller-xf68j         1/1     Running     0          77m   172.16.201.135   node-1   <none>           <none>
+
+
+[root@master-1 ~]# kubectl get services -o wide --all-namespaces|grep ingress-nginx
+ingress-nginx   ingress-nginx-controller-admission   LoadBalancer   10.1.255.129   <pending>     443:30155/TCP            78m     app.kubernetes.io/component=controller,app.kubernetes.io/instance=ingress-nginx,app.kubernetes.io/name=ingress-nginx
+[root@master-1 ~]# 
+
+
+kubectl get services -o wide --all-namespaces
+
+
+######注：
+node-1是172.16.201.135
+node-2是172.16.201.136
+
+
+物理服务器135、136的30155 都可以访问到：
+[root@master-1 ~]# curl -I https://172.16.201.135:30155/
+curl: (60) Peer's Certificate issuer is not recognized.
+More details here: http://curl.haxx.se/docs/sslcerts.html
+
+curl performs SSL certificate verification by default, using a "bundle"
+ of Certificate Authority (CA) public keys (CA certs). If the default
+ bundle file isn't adequate, you can specify an alternate file
+ using the --cacert option.
+If this HTTPS server uses a certificate signed by a CA represented in
+ the bundle, the certificate verification probably failed due to a
+ problem with the certificate (it might be expired, or the name might
+ not match the domain name in the URL).
+If you'd like to turn off curl's verification of the certificate, use
+ the -k (or --insecure) option.
+
+
+[root@master-1 ~]# curl -I https://172.16.201.136:30155/
+curl: (60) Peer's Certificate issuer is not recognized.
+More details here: http://curl.haxx.se/docs/sslcerts.html
+
+curl performs SSL certificate verification by default, using a "bundle"
+ of Certificate Authority (CA) public keys (CA certs). If the default
+ bundle file isn't adequate, you can specify an alternate file
+ using the --cacert option.
+If this HTTPS server uses a certificate signed by a CA represented in
+ the bundle, the certificate verification probably failed due to a
+ problem with the certificate (it might be expired, or the name might
+ not match the domain name in the URL).
+If you'd like to turn off curl's verification of the certificate, use
+ the -k (or --insecure) option.
+
+
+
+172.16.201.135/136上的80/443都打开了
+[root@node-1 ~]#  netstat -natp |egrep ":80|:443"
+tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN      105447/nginx: maste 
+tcp        0      0 0.0.0.0:443             0.0.0.0:*               LISTEN      105447/nginx: maste 
+tcp        0      0 172.16.201.135:50502    10.1.0.1:443            ESTABLISHED 17624/flanneld      
+tcp        0      0 172.16.201.135:42880    10.1.0.1:443            ESTABLISHED 105403/nginx-ingres 
+tcp6       0      0 :::80                   :::*                    LISTEN      105447/nginx: maste 
+tcp6       0      0 :::443                  :::*                    LISTEN      105447/nginx: maste 
+
+[root@node-2 ~]# netstat -natp |egrep ":80|:443"
+tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN      706/nginx: worker p 
+tcp        0      0 0.0.0.0:443             0.0.0.0:*               LISTEN      706/nginx: worker p 
+tcp        0      0 172.16.201.136:37770    10.1.0.1:443            ESTABLISHED 113039/nginx-ingres 
+tcp        0      0 172.16.201.136:59322    10.1.0.1:443            ESTABLISHED 17394/flanneld      
+tcp6       0      0 :::80                   :::*                    LISTEN      700/nginx: worker p 
+tcp6       0      0 :::443                  :::*                    LISTEN      700/nginx: worker p 
+
+
+ingress端口全部开放了
+
+####2)apache  tomcat部署
+
+[root@master ~]# docker pull httpd
+[root@master ~]# docker pull tomcat
+
+
+###改配置文件：
+###注：大招：语法不会，下载成型的yaml文件，复制过来。
+
+kubectl  get  pod,svc -n test-ns
+
+
+[root@master-1 ~]# kubectl delete -f httpd.yaml      
+deployment.apps "httpd01" deleted
+service "httpd-svc" deleted
+
+[root@master-1 ~]# kubectl apply -f httpd.yaml
+deployment.apps/httpd01 created
+service/httpd-svc created
+                                                                                                                          
+[root@master-1 ~]# cat httpd.yaml 
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: httpd01
+  namespace: test-ns
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      k8s-app: httpd01
+  template:
+    metadata:
+      labels:
+        k8s-app: httpd01
+    spec:
+      containers:
+        - name: httpd
+          image: httpd
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  name: httpd-svc
+  namespace: test-ns
+spec:
+  selector:
+    k8s-app: httpd01
+  ports:
+    - port: 81
+      targetPort: 81
+
+[root@master-1 ~]# 
+
+
+
+
+
+[root@master-1 ~]# kubectl apply -f tomcat-Deployment.yaml 
+deployment.apps/tomcat01 created
+service/tomcat-svc created
+
+
+[root@master-1 ~]# cat tomcat-Deployment.yaml
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: tomcat01
+  namespace: test-ns
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      k8s-app: tomcat01
+  template:
+    metadata:
+      labels:
+        k8s-app: tomcat01
+    spec:
+      containers:
+        - name: tomcat
+          image: tomcat
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  name: tomcat-svc
+  namespace: test-ns
+spec:
+  selector:
+    k8s-app: tomcat01
+  ports:
+    - port: 8080
+      targetPort: 8080
+
+
+
+[root@node-2 ~]# kubectl  get  pod,svc -n test-ns
+NAME                           READY   STATUS    RESTARTS   AGE
+pod/httpd01-699c8fcff4-bhn84   1/1     Running   0          6h44m
+pod/tomcat01-95fc6cd5d-p85g6   1/1     Running   0          22h
+
+NAME                 TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)    AGE
+service/httpd-svc    ClusterIP   10.1.142.189   <none>        80/TCP     6h44m
+service/tomcat-svc   ClusterIP   10.1.29.129    <none>        8080/TCP   22h
+
+
+[root@master-1 ~]# curl -I 10.1.142.189
+HTTP/1.1 200 OK
+Date: Thu, 23 Sep 2021 12:11:58 GMT
+Server: Apache/2.4.49 (Unix)
+Last-Modified: Mon, 11 Jun 2007 18:53:14 GMT
+ETag: "2d-432a5e4a73a80"
+Accept-Ranges: bytes
+Content-Length: 45
+Content-Type: text/html
+
+
+[root@master-1 ~]#  curl -I 10.1.29.129:8080
+HTTP/1.1 404 
+Content-Type: text/html;charset=utf-8
+Content-Language: en
+Transfer-Encoding: chunked
+Date: Thu, 23 Sep 2021 11:56:27 GMT
+
+
+#####新版本tomcat没有ROOT目录，所以只有一个节点，直接进去加默认测试页面：
+[root@node-1 ~]# docker exec -it  k8s_tomcat_tomcat01-95fc6cd5d-p85g6_test-ns_500aacb5-62be-4879-9c14-1ede8dbec968_0 /bin/bash
+root@tomcat01-95fc6cd5d-p85g6:/usr/local/tomcat#mkdir webapps/ROOT;cd webapps
+root@tomcat01-95fc6cd5d-p85g6:/usr/local/tomcat/webapps# echo "######  K8S  #######" > ROOT/index.jsp  
+
+tomcat这里的话, latest 是tomcat9, webapps 下默认是空的, 当时还确认了半天有没有配置错误, 后来才发现 webapps 下没有内容, 内容在另一个 webapps.dist 下 , 只需要把 webapps.dist 下的内容移到 webapps 或者直接改名文件夹, 再通过浏览器访问 tomcat.whn.com 就能访问到 tomcat 的首页.
+#####新版本tomcat没有ROOT目录，所以只有一个节点，直接进去加默认测试页面：
+
+#####tomcat部署静态页面#####
+docker run --name tomcat-test -p 8080:8080 tomcat 
+
+docker exec -it  tomcat /bin/bash
+docker exec -it  k8s_tomcat_tomcat01-95fc6cd5d-p85g6_test-ns_500aacb5-62be-4879-9c14-1ede8dbec968_0 /bin/bash
+docker exec -it  tomcat /bin/bash
+docker exec -it  52974bf17162 /bin/bash
+
+echo "test" > ROOT/index.jsp
+echo "test" > /usr/local/tomcat/webapps/ROOT/index.jsp
+#####tomcat部署静态页面#####
+
+
+
+再访问测试页面：
+[root@master-1 ~]#  curl 10.1.29.129:8080   
+######  K8S  #######
+
+[root@master-1 ~]#  curl -I 10.1.29.129:8080
+HTTP/1.1 200 
+Set-Cookie: JSESSIONID=2CFC11C9028533DAE8772F47D8632716; Path=/; HttpOnly
+Content-Type: text/html;charset=UTF-8
+Transfer-Encoding: chunked
+Date: Fri, 24 Sep 2021 02:09:11 GMT
+
+
+
+
+[root@node-2 ~]#  kubectl get services -o wide --all-namespaces
+NAMESPACE       NAME                                 TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)                  AGE     SELECTOR
+default         kubernetes                           ClusterIP      10.1.0.1       <none>        443/TCP                  2d5h    <none>
+ingress-nginx   ingress-nginx-controller-admission   LoadBalancer   10.1.255.129   <pending>     443:30155/TCP            86m     app.kubernetes.io/component=controller,app.kubernetes.io/instance=ingress-nginx,app.kubernetes.io/name=ingress-nginx
+kube-system     kube-dns                             ClusterIP      10.1.0.10      <none>        53/UDP,53/TCP,9153/TCP   2d5h    k8s-app=kube-dns
+test-ns         httpd-svc                            ClusterIP      10.1.142.189   <none>        80/TCP                   6h45m   k8s-app=httpd01
+test-ns         tomcat-svc                           ClusterIP      10.1.29.129    <none>        8080/TCP                 22h     k8s-app=tomcat01
+
+
+
+
+
+replicas: 20 做下测试
+[root@master-1 ~]# kubectl get pods  --all-namespaces -o wide      
+NAMESPACE       NAME                                        READY   STATUS      RESTARTS   AGE     IP               NODE       NOMINATED NODE   READINESS GATES
+ingress-nginx   ingress-nginx-admission-create-wvlxx        0/1     Completed   0          15h     10.244.2.8       node-2     <none>           <none>
+ingress-nginx   ingress-nginx-admission-patch-872k8         0/1     Completed   1          15h     10.244.1.8       node-1     <none>           <none>
+ingress-nginx   ingress-nginx-controller-6d4d95754c-w2fvb   1/1     Running     0          15h     10.244.1.9       node-1     <none>           <none>
+kube-system     coredns-6d56c8448f-mp5lz                    1/1     Running     0          45h     10.244.1.2       node-1     <none>           <none>
+kube-system     coredns-6d56c8448f-wnqxj                    1/1     Running     0          45h     10.244.2.2       node-2     <none>           <none>
+kube-system     etcd-master-1                               1/1     Running     2          45h     172.16.201.134   master-1   <none>           <none>
+kube-system     kube-apiserver-master-1                     1/1     Running     20         45h     172.16.201.134   master-1   <none>           <none>
+kube-system     kube-controller-manager-master-1            1/1     Running     6          45h     172.16.201.134   master-1   <none>           <none>
+kube-system     kube-flannel-ds-mmhsm                       1/1     Running     0          45h     172.16.201.135   node-1     <none>           <none>
+kube-system     kube-flannel-ds-rz2xj                       1/1     Running     2          45h     172.16.201.134   master-1   <none>           <none>
+kube-system     kube-flannel-ds-ts9fm                       1/1     Running     0          45h     172.16.201.136   node-2     <none>           <none>
+kube-system     kube-proxy-bkck2                            1/1     Running     0          45h     172.16.201.135   node-1     <none>           <none>
+kube-system     kube-proxy-c6fdx                            1/1     Running     2          45h     172.16.201.134   master-1   <none>           <none>
+kube-system     kube-proxy-phjdh                            1/1     Running     0          45h     172.16.201.136   node-2     <none>           <none>
+kube-system     kube-scheduler-master-1                     1/1     Running     6          45h     172.16.201.134   master-1   <none>           <none>
+test-ns         httpd01-699c8fcff4-4bf2k                    1/1     Running     0          3m44s   10.244.2.20      node-2     <none>           <none>
+test-ns         httpd01-699c8fcff4-4ch2q                    1/1     Running     0          3m44s   10.244.1.16      node-1     <none>           <none>
+test-ns         httpd01-699c8fcff4-4j4dn                    1/1     Running     0          3m44s   10.244.1.14      node-1     <none>           <none>
+test-ns         httpd01-699c8fcff4-527lk                    1/1     Running     0          3m44s   10.244.2.15      node-2     <none>           <none>
+test-ns         httpd01-699c8fcff4-562zd                    1/1     Running     0          3m44s   10.244.2.18      node-2     <none>           <none>
+test-ns         httpd01-699c8fcff4-5cws6                    1/1     Running     0          3m44s   10.244.2.22      node-2     <none>           <none>
+test-ns         httpd01-699c8fcff4-5nxhd                    1/1     Running     0          3m44s   10.244.2.23      node-2     <none>           <none>
+test-ns         httpd01-699c8fcff4-76vmt                    1/1     Running     0          3m44s   10.244.1.15      node-1     <none>           <none>
+test-ns         httpd01-699c8fcff4-bklcv                    1/1     Running     0          3m44s   10.244.2.21      node-2     <none>           <none>
+test-ns         httpd01-699c8fcff4-cv8td                    1/1     Running     0          3m44s   10.244.2.14      node-2     <none>           <none>
+test-ns         httpd01-699c8fcff4-fmbt5                    1/1     Running     0          3m44s   10.244.2.17      node-2     <none>           <none>
+test-ns         httpd01-699c8fcff4-fnwfn                    1/1     Running     0          3m44s   10.244.2.16      node-2     <none>           <none>
+test-ns         httpd01-699c8fcff4-hqqll                    1/1     Running     0          3m44s   10.244.1.13      node-1     <none>           <none>
+test-ns         httpd01-699c8fcff4-khljq                    1/1     Running     0          3m44s   10.244.1.18      node-1     <none>           <none>
+test-ns         httpd01-699c8fcff4-p2wcf                    1/1     Running     0          3m44s   10.244.1.22      node-1     <none>           <none>
+test-ns         httpd01-699c8fcff4-qrh7l                    1/1     Running     0          3m44s   10.244.1.19      node-1     <none>           <none>
+test-ns         httpd01-699c8fcff4-rs9fm                    1/1     Running     0          3m43s   10.244.1.21      node-1     <none>           <none>
+test-ns         httpd01-699c8fcff4-vtgfk                    1/1     Running     0          3m44s   10.244.1.17      node-1     <none>           <none>
+test-ns         httpd01-699c8fcff4-vx6kr                    1/1     Running     0          3m44s   10.244.2.19      node-2     <none>           <none>
+test-ns         httpd01-699c8fcff4-vxv65                    1/1     Running     0          3m44s   10.244.1.20      node-1     <none>           <none>
+test-ns         tomcat01-95fc6cd5d-p85g6                    1/1     Running     0          13h     10.244.1.12      node-1     <none>           <none>
+[root@master-1 ~]# 
+
+
+一切准备完毕：
+[root@node-2 ~]# kubectl get pods  --all-namespaces -o wide   |grep -v kube-system
+NAMESPACE       NAME                                   READY   STATUS      RESTARTS   AGE     IP               NODE       NOMINATED NODE   READINESS GATES
+ingress-nginx   ingress-nginx-admission-create-4wp6d   0/1     Completed   0          87m     10.244.2.35      node-2     <none>           <none>
+ingress-nginx   ingress-nginx-admission-patch-glk59    0/1     Completed   0          87m     10.244.1.31      node-1     <none>           <none>
+ingress-nginx   ingress-nginx-controller-s7x2z         1/1     Running     0          87m     172.16.201.136   node-2     <none>           <none>
+ingress-nginx   ingress-nginx-controller-xf68j         1/1     Running     0          87m     172.16.201.135   node-1     <none>           <none>
+test-ns         httpd01-699c8fcff4-bhn84               1/1     Running     0          6h46m   10.244.2.26      node-2     <none>           <none>
+test-ns         tomcat01-95fc6cd5d-p85g6               1/1     Running     0          22h     10.244.1.12      node-1     <none>           <none>
+
+
+
+
+
+
+
+
+
+
+####3)、ingress配置域名访问
+######（1）创建Ingress-nginx资源对象
+略之前弄好了
+
+######（2）定义Ingress规则
+[root@master-1 ~]# cat test-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: test-ingress
+  namespace: test-ns
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: test-ingress-class
+  rules:
+  - host: www.test01.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: httpd-svc
+            port: 
+             number: 80
+      - pathType: Prefix
+        path: /tomcat
+        backend:
+          service:
+            name: tomcat-svc
+            port: 
+             number: 8080
+[root@master-1 ~]# 
+
+
+[root@master-1 ~]#  kubectl delete -f  test-ingress.yaml
+[root@master-1 ~]#  kubectl apply -f  test-ingress.yaml
+ingress.networking.k8s.io/test-ingress created
+
+
+
+[root@master-1 ~]# kubectl get pod,svc,ing -n test-ns -o wide  
+Warning: extensions/v1beta1 Ingress is deprecated in v1.14+, unavailable in v1.22+; use networking.k8s.io/v1 Ingress
+NAME                           READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+pod/httpd01-699c8fcff4-bhn84   1/1     Running   0          7h16m   10.244.2.26   node-2   <none>           <none>
+pod/tomcat01-95fc6cd5d-p85g6   1/1     Running   0          22h     10.244.1.12   node-1   <none>           <none>
+
+NAME                 TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)    AGE     SELECTOR
+service/httpd-svc    ClusterIP   10.1.142.189   <none>        80/TCP     7h16m   k8s-app=httpd01
+service/tomcat-svc   ClusterIP   10.1.29.129    <none>        8080/TCP   22h     k8s-app=tomcat01
+
+NAME                              CLASS                HOSTS            ADDRESS                         PORTS   AGE
+ingress.extensions/test-ingress   test-ingress-class   www.test01.com   172.16.201.135,172.16.201.136   80      66m
+[root@master-1 ~]# 
+
+
+
+
+[root@master-1 ~]# kubectl get pod,services -n ingress-nginx -o wide
+NAME                                       READY   STATUS      RESTARTS   AGE    IP               NODE     NOMINATED NODE   READINESS GATES
+pod/ingress-nginx-admission-create-4wp6d   0/1     Completed   0          118m   10.244.2.35      node-2   <none>           <none>
+pod/ingress-nginx-admission-patch-glk59    0/1     Completed   0          118m   10.244.1.31      node-1   <none>           <none>
+pod/ingress-nginx-controller-s7x2z         1/1     Running     0          118m   172.16.201.136   node-2   <none>           <none>
+pod/ingress-nginx-controller-xf68j         1/1     Running     0          118m   172.16.201.135   node-1   <none>           <none>
+
+NAME                                         TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)         AGE    SELECTOR
+service/ingress-nginx-controller-admission   LoadBalancer   10.1.255.129   <pending>     443:30155/TCP   118m   app.kubernetes.io/component=controller,app.kubernetes.io/instance=ingress-nginx,app.kubernetes.io/name=ingress-nginx
+[root@master-1 ~]# 
+
+
+
+[root@master-1 ~]# curl -v http://172.16.201.135 -H 'www.test01.com'
+* About to connect() to 172.16.201.135 port 80 (#0)
+*   Trying 172.16.201.135...
+* Connected to 172.16.201.135 (172.16.201.135) port 80 (#0)
+> GET / HTTP/1.1
+> User-Agent: curl/7.29.0
+> Host: 172.16.201.135
+> Accept: */*
+> 
+< HTTP/1.1 404 Not Found
+< Date: Fri, 24 Sep 2021 04:21:26 GMT
+< Content-Type: text/html
+< Content-Length: 146
+< Connection: keep-alive
+< 
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+* Connection #0 to host 172.16.201.135 left intact
+
+
+
+######访问404,查下ingress-nginx-controller其中一台log
+
+[root@master-1 ~]# kubectl logs -f  pod/ingress-nginx-controller-xf68j -n ingress-nginx
+-------------------------------------------------------------------------------
+NGINX Ingress controller
+  Release:       v1.0.1
+  Build:         abab0396757dcd6f72018ee66611db18df838b17
+  Repository:    https://github.com/kubernetes/ingress-nginx
+  nginx version: nginx/1.19.9
+
+-------------------------------------------------------------------------------
+
+W0924 08:36:24.168041       6 client_config.go:615] Neither --kubeconfig nor --master was specified.  Using the inClusterConfig.  This might not work.
+I0924 08:36:24.168552       6 main.go:221] "Creating API client" host="https://10.1.0.1:443"
+I0924 08:36:24.308254       6 main.go:265] "Running in Kubernetes cluster" major="1" minor="19" git="v1.19.9" state="clean" commit="9dd794e454ac32d97cde41ae10be801ae98f75df" platform="linux/amd64"
+I0924 08:36:24.709243       6 main.go:104] "SSL fake certificate created" file="/etc/ingress-controller/ssl/default-fake-certificate.pem"
+I0924 08:36:24.851204       6 ssl.go:531] "loading tls certificate" path="/usr/local/certificates/cert" key="/usr/local/certificates/key"
+I0924 08:36:24.900495       6 nginx.go:253] "Starting NGINX Ingress controller"
+I0924 08:36:24.953833       6 event.go:282] Event(v1.ObjectReference{Kind:"ConfigMap", Namespace:"ingress-nginx", Name:"ingress-nginx-controller", UID:"410b7163-576a-4251-8cee-f52717d25ca9", APIVersion:"v1", ResourceVersion:"242543", FieldPath:""}): type: 'Normal' reason: 'CREATE' ConfigMap ingress-nginx/ingress-nginx-controller
+I0924 08:36:26.102677       6 nginx.go:295] "Starting NGINX process"
+I0924 08:36:26.103288       6 nginx.go:315] "Starting validation webhook" address=":8443" certPath="/usr/local/certificates/cert" keyPath="/usr/local/certificates/key"
+I0924 08:36:26.103438       6 leaderelection.go:243] attempting to acquire leader lease ingress-nginx/ingress-controller-leader...
+I0924 08:36:26.104643       6 controller.go:152] "Configuration changes detected, backend reload required"
+I0924 08:36:26.136938       6 leaderelection.go:253] successfully acquired lease ingress-nginx/ingress-controller-leader
+I0924 08:36:26.137800       6 status.go:84] "New leader elected" identity="ingress-nginx-controller-xf68j"
+I0924 08:36:26.174548       6 status.go:215] "POD is not ready" pod="ingress-nginx/ingress-nginx-controller-s7x2z" node="node-2"
+I0924 08:36:26.174611       6 status.go:215] "POD is not ready" pod="ingress-nginx/ingress-nginx-controller-xf68j" node="node-1"
+I0924 08:36:26.287525       6 controller.go:169] "Backend successfully reloaded"
+I0924 08:36:26.287615       6 controller.go:180] "Initial sync, sleeping for 1 second"
+I0924 08:36:26.288333       6 event.go:282] Event(v1.ObjectReference{Kind:"Pod", Namespace:"ingress-nginx", Name:"ingress-nginx-controller-xf68j", UID:"58b73412-4368-465b-bd3a-711d1268e081", APIVersion:"v1", ResourceVersion:"242637", FieldPath:""}): type: 'Normal' reason: 'RELOAD' NGINX reload triggered due to a change in configuration
+I0924 09:09:23.634551       6 store.go:361] "Ignoring ingress because of error while validating ingress class" ingress="test-ns/test-ingress" error="ingress does not contain a valid IngressClass"
+
+
+
+#####错误：
+I0924 09:09:23.634551       6 store.go:361] "Ignoring ingress because of error while validating ingress class" ingress="test-ns/test-ingress" error="ingress does not contain a valid IngressClass"
+
+
+####缺少class，新建class
+提示ingress资源未指定IngressClass。
+查看官方提供的deploy中确实有创建IngressClass，但是指定了namespace:ingress-nginx
+于是将该部分内容复制出来，用于在default空间也创建一个IngressClass。
+
+
+[root@master-1 ~]# vim class.yaml
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  labels:
+    helm.sh/chart: ingress-nginx-4.0.1
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/version: 1.0.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: controller
+	name: test-ingress-class
+  namespace: test-ns
+spec:
+  controller: k8s.io/ingress-nginx
+	
+[root@master-1 ~]# kubectl apply -f class.yaml
+ingressclass.networking.k8s.io/test-ingress created
+
+[root@master-1 ~]# kubectl delete -f class.yaml
+
+
+#####修改test-ingress.yaml，指定ingressClassName使用刚才创建的class：test-ingress-class
+[root@master-1 ~]# vim test-ingress.yaml
+spec:
+  ingressClassName: test-ingress-class
+  rules:
+  - host: www.test01.com
+
+
+
+
+[root@master-1 ~]# kubectl get pod,svc,ing -n test-ns -o wide  
+Warning: extensions/v1beta1 Ingress is deprecated in v1.14+, unavailable in v1.22+; use networking.k8s.io/v1 Ingress
+NAME                           READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+pod/httpd01-699c8fcff4-bhn84   1/1     Running   0          7h25m   10.244.2.26   node-2   <none>           <none>
+pod/tomcat01-95fc6cd5d-p85g6   1/1     Running   0          22h     10.244.1.12   node-1   <none>           <none>
+
+NAME                 TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)    AGE     SELECTOR
+service/httpd-svc    ClusterIP   10.1.142.189   <none>        80/TCP     7h25m   k8s-app=httpd01
+service/tomcat-svc   ClusterIP   10.1.29.129    <none>        8080/TCP   22h     k8s-app=tomcat01
+
+NAME                              CLASS                HOSTS            ADDRESS                         PORTS   AGE
+ingress.extensions/test-ingress   test-ingress-class   www.test01.com   172.16.201.135,172.16.201.136   80      75m
+####class 已经有了 ，上午没有配置class。
+
+
+
+测试apache tomcat访问：
+[root@master-1 ~]# curl -I www.test01.com/tomcat
+HTTP/1.1 200 
+Date: Fri, 24 Sep 2021 09:29:18 GMT
+Content-Type: text/html;charset=UTF-8
+Connection: keep-alive
+Set-Cookie: JSESSIONID=638BFBB0E0EF463AA5D84A066C0701B9; Path=/; HttpOnly
+
+
+[root@master-1 ~]# curl -I www.test01.com
+HTTP/1.1 200 OK
+Date: Fri, 24 Sep 2021 09:29:31 GMT
+Content-Type: text/html
+Content-Length: 45
+Connection: keep-alive
+Last-Modified: Mon, 11 Jun 2007 18:53:14 GMT
+ETag: "2d-432a5e4a73a80"
+Accept-Ranges: bytes
+
+
+
+查看日志，已经可以访问：
+[root@master-1 ~]# kubectl logs -f  pod/ingress-nginx-controller-xf68j -n ingress-nginx
+I0924 09:27:39.304304       6 controller.go:152] "Configuration changes detected, backend reload required"
+I0924 09:27:39.767827       6 controller.go:169] "Backend successfully reloaded"
+I0924 09:27:39.769350       6 event.go:282] Event(v1.ObjectReference{Kind:"Pod", Namespace:"ingress-nginx", Name:"ingress-nginx-controller-xf68j", UID:"58b73412-4368-465b-bd3a-711d1268e081", APIVersion:"v1", ResourceVersion:"242637", FieldPath:""}): type: 'Normal' reason: 'RELOAD' NGINX reload triggered due to a change in configuration
+172.16.201.1 - - [24/Sep/2021:09:27:48 +0000] "HEAD /tomcat HTTP/1.1" 200 0 "-" "curl/7.64.1" 85 0.062 [test-ns-tomcat-svc-8080] [] 10.244.1.12:8080 0 0.062 200 4b33c1fea6a1afc5657e6ea620f759d0
+172.16.201.1 - - [24/Sep/2021:09:27:53 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/7.64.1" 79 0.011 [test-ns-httpd-svc-80] [] 10.244.2.26:80 0 0.011 200 f252e5f7ca67e6ac85d4f843dfa76017
+I0924 09:28:26.158932       6 status.go:287] "updating Ingress status" namespace="test-ns" ingress="test-ingress" currentValue=[] newValue=[{IP:172.16.201.135 Hostname: Ports:[]} {IP:172.16.201.136 Hostname: Ports:[]}]
+I0924 09:28:26.168751       6 event.go:282] Event(v1.ObjectReference{Kind:"Ingress", Namespace:"test-ns", Name:"test-ingress", UID:"1e61ec88-23c6-4a32-ab26-9ded9d4e87eb", APIVersion:"networking.k8s.io/v1", ResourceVersion:"250503", FieldPath:""}): type: 'Normal' reason: 'Sync' Scheduled for sync
+172.16.201.134 - - [24/Sep/2021:09:29:00 +0000] "GET / HTTP/1.1" 200 45 "-" "curl/7.29.0" 78 0.006 [test-ns-httpd-svc-80] [] 10.244.2.26:80 45 0.006 200 4ef43dbb6645241aae5ffe9df520ef70
+172.16.201.134 - - [24/Sep/2021:09:29:03 +0000] "GET /tomcat HTTP/1.1" 200 21 "-" "curl/7.29.0" 84 0.009 [test-ns-tomcat-svc-8080] [] 10.244.1.12:8080 21 0.009 200 d9a7dde6c57304e4ae9043a8c51ee1fb
+172.16.201.134 - - [24/Sep/2021:09:29:18 +0000] "HEAD /tomcat HTTP/1.1" 200 0 "-" "curl/7.29.0" 85 0.005 [test-ns-tomcat-svc-8080] [] 10.244.1.12:8080 0 0.005 200 68131e830021a1412254ff48fe2fc960
+172.16.201.134 - - [24/Sep/2021:09:29:31 +0000] "HEAD / HTTP/1.1" 200 0 "-" "curl/7.29.0" 79 0.007 [test-ns-httpd-svc-80] [] 10.244.2.26:80 0 0.007 200 90c8e8d35e5a50e6cba61c4cb79feccd
+
+
+
+
+
+[root@master-1 ~]# kubectl describe ingress test-ingress
+Warning: extensions/v1beta1 Ingress is deprecated in v1.14+, unavailable in v1.22+; use networking.k8s.io/v1 Ingress
+Error from server (NotFound): ingresses.extensions "test-ingress" not found
+
+
+
+
+####总结上述示例的pod是如何一步一步可以使client访问到的，总结如下：
+
+后端pod===》service====》ingress规则====》写入Ingress-nginx-controller配置文件并自动重载使更改生效===》对Ingress-nginx创建service====》实现client无论通过哪个K8节点的IP+端口都可以访问到后端pod
+
+
+参考：
+https://kubernetes.io/zh/docs/concepts/services-networking/ingress/
