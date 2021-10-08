@@ -1,0 +1,431 @@
+
+##三、搭建K8S Dashboard
+1. 下载dashboard文件：
+[root@master-1 ~]#  wget https://raw.githubusercontent.com/kubernetes/dashboard/v2.2.0/aio/deploy/recommended.yaml
+[root@master-1 ~]# 
+
+
+[root@master-1 ~]# cat recommended.yaml
+
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubernetes-dashboard
+
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard
+  name: kubernetes-dashboard
+  namespace: kubernetes-dashboard
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard
+  name: kubernetes-dashboard
+  namespace: kubernetes-dashboard
+spec:
+  ports:
+    - port: 443
+      targetPort: 8443
+      nodePort: 30001
+  type: NodePort
+  selector:
+    k8s-app: kubernetes-dashboard
+
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard
+  name: kubernetes-dashboard-certs
+  namespace: kubernetes-dashboard
+type: Opaque
+
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard
+  name: kubernetes-dashboard-csrf
+  namespace: kubernetes-dashboard
+type: Opaque
+data:
+  csrf: ""
+
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard
+  name: kubernetes-dashboard-key-holder
+  namespace: kubernetes-dashboard
+type: Opaque
+
+---
+
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard
+  name: kubernetes-dashboard-settings
+  namespace: kubernetes-dashboard
+
+---
+
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard
+  name: kubernetes-dashboard
+  namespace: kubernetes-dashboard
+rules:
+  # Allow Dashboard to get, update and delete Dashboard exclusive secrets.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["kubernetes-dashboard-key-holder", "kubernetes-dashboard-certs", "kubernetes-dashboard-csrf"]
+    verbs: ["get", "update", "delete"]
+    # Allow Dashboard to get and update 'kubernetes-dashboard-settings' config map.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["kubernetes-dashboard-settings"]
+    verbs: ["get", "update"]
+    # Allow Dashboard to get metrics.
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames: ["heapster", "dashboard-metrics-scraper"]
+    verbs: ["proxy"]
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    resourceNames: ["heapster", "http:heapster:", "https:heapster:", "dashboard-metrics-scraper", "http:dashboard-metrics-scraper"]
+    verbs: ["get"]
+
+---
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard
+  name: kubernetes-dashboard
+rules:
+  # Allow Metrics Scraper to get metrics from the Metrics server
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard
+  name: kubernetes-dashboard
+  namespace: kubernetes-dashboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubernetes-dashboard
+subjects:
+  - kind: ServiceAccount
+    name: kubernetes-dashboard
+    namespace: kubernetes-dashboard
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubernetes-dashboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubernetes-dashboard
+subjects:
+  - kind: ServiceAccount
+    name: kubernetes-dashboard
+    namespace: kubernetes-dashboard
+
+---
+
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  labels:
+    k8s-app: kubernetes-dashboard
+  name: kubernetes-dashboard
+  namespace: kubernetes-dashboard
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      k8s-app: kubernetes-dashboard
+  template:
+    metadata:
+      labels:
+        k8s-app: kubernetes-dashboard
+    spec:
+      containers:
+        - name: kubernetes-dashboard
+          image: kubernetesui/dashboard:v2.2.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8443
+              protocol: TCP
+          args:
+            - --auto-generate-certificates
+            - --namespace=kubernetes-dashboard
+            # Uncomment the following line to manually specify Kubernetes API server Host
+            # If not specified, Dashboard will attempt to auto discover the API server and connect
+            # to it. Uncomment only if the default does not work.
+            # - --apiserver-host=http://my-address:port
+          volumeMounts:
+            - name: kubernetes-dashboard-certs
+              mountPath: /certs
+              # Create on-disk volume to store exec logs
+            - mountPath: /tmp
+              name: tmp-volume
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /
+              port: 8443
+            initialDelaySeconds: 30
+            timeoutSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 1001
+            runAsGroup: 2001
+      volumes:
+        - name: kubernetes-dashboard-certs
+          secret:
+            secretName: kubernetes-dashboard-certs
+        - name: tmp-volume
+          emptyDir: {}
+      serviceAccountName: kubernetes-dashboard
+      nodeSelector:
+        "kubernetes.io/os": linux
+      # Comment the following tolerations if Dashboard must not be deployed on master
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    k8s-app: dashboard-metrics-scraper
+  name: dashboard-metrics-scraper
+  namespace: kubernetes-dashboard
+spec:
+  ports:
+    - port: 8000
+      targetPort: 8000
+  selector:
+    k8s-app: dashboard-metrics-scraper
+
+---
+
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  labels:
+    k8s-app: dashboard-metrics-scraper
+  name: dashboard-metrics-scraper
+  namespace: kubernetes-dashboard
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      k8s-app: dashboard-metrics-scraper
+  template:
+    metadata:
+      labels:
+        k8s-app: dashboard-metrics-scraper
+      annotations:
+        seccomp.security.alpha.kubernetes.io/pod: 'runtime/default'
+    spec:
+      containers:
+        - name: dashboard-metrics-scraper
+          image: kubernetesui/metrics-scraper:v1.0.6
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /
+              port: 8000
+            initialDelaySeconds: 30
+            timeoutSeconds: 30
+          volumeMounts:
+          - mountPath: /tmp
+            name: tmp-volume
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 1001
+            runAsGroup: 2001
+      serviceAccountName: kubernetes-dashboard
+      nodeSelector:
+        "kubernetes.io/os": linux
+      # Comment the following tolerations if Dashboard must not be deployed on master
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+[root@master-1 ~]# 
+
+
+
+2.下载镜像镜像【k8s.gcr.io#kubernetes-dashboard-amd64.tar】
+链接: https://pan.baidu.com/s/1vQUGpx89TZw-HyxCVE972w 提取码: 5pui 复制这段内容后打开百度网盘手机App，操作更方便哦
+
+
+3. 创建kubernetes-dashboard：注意：修改【recommended.yaml】文件里面的镜像地址
+kubectl create -f  recommended.yaml
+
+
+
+4. 卸载之前安装的内容：
+kubectl delete -f  recommended.yaml
+
+
+6、修改访问端口
+[root@master-1 ~]# sed -i '/targetPort: 8443/a\ \ \ \ \ \ nodePort: 30001\n\ \ type: NodePort' recommended.yaml​ 
+ 访问nodePort: 30001 修改成30001
+
+
+7. 重新安装最新版本dashboard：
+kubectl create -f recommended.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.2.0/aio/deploy/recommended.yaml
+
+
+[root@master-1 ~]# kubectl get pods --all-namespaces
+NAMESPACE              NAME                                         READY   STATUS    RESTARTS   AGE
+kube-system            coredns-6d56c8448f-mp5lz                     1/1     Running   0          126m
+kube-system            coredns-6d56c8448f-wnqxj                     1/1     Running   0          126m
+kube-system            etcd-master-1                                1/1     Running   1          126m
+kube-system            kube-apiserver-master-1                      1/1     Running   1          126m
+kube-system            kube-controller-manager-master-1             1/1     Running   1          81m
+kube-system            kube-flannel-ds-mmhsm                        1/1     Running   0          89m
+kube-system            kube-flannel-ds-rz2xj                        1/1     Running   1          89m
+kube-system            kube-flannel-ds-ts9fm                        1/1     Running   0          89m
+kube-system            kube-proxy-bkck2                             1/1     Running   0          110m
+kube-system            kube-proxy-c6fdx                             1/1     Running   1          126m
+kube-system            kube-proxy-phjdh                             1/1     Running   0          110m
+kube-system            kube-scheduler-master-1                      1/1     Running   1          81m
+kubernetes-dashboard   dashboard-metrics-scraper-79c5968bdc-bcm4d   1/1     Running   0          72s
+kubernetes-dashboard   kubernetes-dashboard-9f9799597-529zk         1/1     Running   0          72s
+
+
+[root@master-1 ~]# kubectl get pod,svc -o wide
+NAME                 TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE    SELECTOR
+service/kubernetes   ClusterIP   10.1.0.1     <none>        443/TCP   135m   <none>
+
+
+kubernetes-dashboard直接访问30001端口即可：
+[root@master-1 ~]# kubectl get all -n kubernetes-dashboard
+NAME                                             READY   STATUS    RESTARTS   AGE
+pod/dashboard-metrics-scraper-79c5968bdc-bcm4d   1/1     Running   0          6m12s
+pod/kubernetes-dashboard-9f9799597-529zk         1/1     Running   0          6m12s
+
+NAME                                TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)         AGE
+service/dashboard-metrics-scraper   ClusterIP   10.1.156.183   <none>        8000/TCP        6m12s
+service/kubernetes-dashboard        NodePort    10.1.27.195    <none>        443:30001/TCP   6m12s
+
+NAME                                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/dashboard-metrics-scraper   1/1     1            1           6m12s
+deployment.apps/kubernetes-dashboard        1/1     1            1           6m12s
+
+NAME                                                   DESIRED   CURRENT   READY   AGE
+replicaset.apps/dashboard-metrics-scraper-79c5968bdc   1         1         1       6m12s
+replicaset.apps/kubernetes-dashboard-9f9799597         1         1         1       6m12s
+[root@master-1 ~]# 
+
+
+[root@master-1 ~]#  kubectl get services -o wide --all-namespaces
+NAMESPACE              NAME                        TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                  AGE    SELECTOR
+default                kubernetes                  ClusterIP   10.1.0.1       <none>        443/TCP                  156m   <none>
+kube-system            kube-dns                    ClusterIP   10.1.0.10      <none>        53/UDP,53/TCP,9153/TCP   156m   k8s-app=kube-dns
+kubernetes-dashboard   dashboard-metrics-scraper   ClusterIP   10.1.156.183   <none>        8000/TCP                 30m    k8s-app=dashboard-metrics-scraper
+kubernetes-dashboard   kubernetes-dashboard        NodePort    10.1.27.195    <none>        443:30001/TCP            30m    k8s-app=kubernetes-dashboard
+
+
+
+8. 获取token：
+
+[root@master-1 ~]# kubectl -n kube-system describe $(kubectl -n kube-system get secret -n kube-system -o name | grep namespace) | grep token
+Name:         namespace-controller-token-rzwtv
+Type:  kubernetes.io/service-account-token
+token:      eyJhbGciOiJSUzI1NiIsImtpZCI6ImgzZVplbFI3YUx0R0pwX1lrNTlQQ3pNWTdHcmJmUkMxb1h3VHNtd0NGbVkifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlLXN5c3RlbSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJuYW1lc3BhY2UtY29udHJvbGxlci10b2tlbi1yend0diIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJuYW1lc3BhY2UtY29udHJvbGxlciIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6IjlhYTM3YTNkLTE4MTEtNDRhMS05ZDUxLThkMzBkZjQzNDdlNSIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDprdWJlLXN5c3RlbTpuYW1lc3BhY2UtY29udHJvbGxlciJ9.zl8IraeIK3zIYhzyYl3lTWCqGfYgW_O2gnOAEKi44XQhvpFFoOaxxkS7wqjXWaenfCUZPHJtNUWYTH804Ku2y_Om6g6fJNv8C8Aj2dyYpgnaifLcIEVi3pGWLmV2eG78rf1sXbObIylSrshoTWGwV-CVXRWNvZGAMFs7uV4tY8tddA7UZi8QGjBP33Ea0s7rbnPUOQmWhe82szWqQZz5MTg9mFHzFsyJSfl2tzZVzGL7fp4Df5Ce3PSmoGGirUmL3pjnfSqbASMYD9xbGXHsDJC1N4h1OiAG6HxwnuD8DrS4hNPgWiAWnSysf1mKni9UiAL54xN6UA-aSjvxNX7N1Q
+[root@master-1 ~]# 
+
+
+
+9.如果谷歌浏览器访问不了，则用火狐访问：
+http://nodeIp:nodePort
+https://172.16.201.136:30001/#/workloads?namespace=default
+接受风险，输入令牌，即可图形化管理k8s集群
+
+
+查看服务被分配到哪个节点上：
+[root@master-1 ~]# kubectl get pods  --all-namespaces -o wide                 
+NAMESPACE              NAME                                         READY   STATUS    RESTARTS   AGE     IP               NODE       NOMINATED NODE   READINESS GATES
+kube-system            coredns-6d56c8448f-mp5lz                     1/1     Running   0          3h16m   10.244.1.2       node-1     <none>           <none>
+kube-system            coredns-6d56c8448f-wnqxj                     1/1     Running   0          3h16m   10.244.2.2       node-2     <none>           <none>
+kube-system            etcd-master-1                                1/1     Running   1          3h16m   172.16.201.134   master-1   <none>           <none>
+kube-system            kube-apiserver-master-1                      1/1     Running   1          3h16m   172.16.201.134   master-1   <none>           <none>
+kube-system            kube-controller-manager-master-1             1/1     Running   1          151m    172.16.201.134   master-1   <none>           <none>
+kube-system            kube-flannel-ds-mmhsm                        1/1     Running   0          159m    172.16.201.135   node-1     <none>           <none>
+kube-system            kube-flannel-ds-rz2xj                        1/1     Running   1          159m    172.16.201.134   master-1   <none>           <none>
+kube-system            kube-flannel-ds-ts9fm                        1/1     Running   0          159m    172.16.201.136   node-2     <none>           <none>
+kube-system            kube-proxy-bkck2                             1/1     Running   0          3h      172.16.201.135   node-1     <none>           <none>
+kube-system            kube-proxy-c6fdx                             1/1     Running   1          3h16m   172.16.201.134   master-1   <none>           <none>
+kube-system            kube-proxy-phjdh                             1/1     Running   0          3h      172.16.201.136   node-2     <none>           <none>
+kube-system            kube-scheduler-master-1                      1/1     Running   1          151m    172.16.201.134   master-1   <none>           <none>
+kubernetes-dashboard   dashboard-metrics-scraper-79c5968bdc-bcm4d   1/1     Running   0          71m     10.244.1.3       node-1     <none>           <none>
+kubernetes-dashboard   kubernetes-dashboard-9f9799597-529zk         1/1     Running   0          71m     10.244.2.4       node-2     <none>           <none>
+
+
+
+10、清理测试环境
+[root@master-1 ~]# kubectl delete -f recommended.yaml
+namespace "kubernetes-dashboard" deleted
+serviceaccount "kubernetes-dashboard" deleted
+service "kubernetes-dashboard" deleted
+secret "kubernetes-dashboard-certs" deleted
+secret "kubernetes-dashboard-csrf" deleted
+secret "kubernetes-dashboard-key-holder" deleted
+configmap "kubernetes-dashboard-settings" deleted
+role.rbac.authorization.k8s.io "kubernetes-dashboard" deleted
+clusterrole.rbac.authorization.k8s.io "kubernetes-dashboard" deleted
+rolebinding.rbac.authorization.k8s.io "kubernetes-dashboard" deleted
+clusterrolebinding.rbac.authorization.k8s.io "kubernetes-dashboard" deleted
+deployment.apps "kubernetes-dashboard" deleted
+service "dashboard-metrics-scraper" deleted
+deployment.apps "dashboard-metrics-scraper" deleted
