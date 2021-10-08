@@ -90,21 +90,21 @@ fs.protected_symlinks = 1
 
 
 #### 7、安装Docker
-###### 1）设置镜像的仓库
+##### 1）设置镜像的仓库
 [root@master-1 yum.repos.d]# cd /etc/yum.repos.d/            
 [root@master-1 yum.repos.d]# wget https://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo -O/etc/yum.repos.d/docker-ce.repo        
 
-###### 2）安装docker
+##### 2）安装docker
 [root@master-1 yum.repos.d]# yum install -y yum-utils device-mapper-persistent-data lvm2​          
 
 [root@master-1 yum.repos.d]# yum install docker-ce-19.03.13 docker-ce-cli-19.03.13 containerd.io     
 
 指定安装的docker版本为19.03.13
 
-###### 3)启动
+##### 3)启动
 [root@master ~] systemctl start docker
 
-###### 4)配置systemd服务
+##### 4)配置systemd服务
 [root@master-1 system]# cd  /usr/lib/systemd/system/       
 [root@master-1 system]# vim docker.service      
 [Unit]     
@@ -175,14 +175,14 @@ root       1670  0.2  3.6 591900 67708 ?        Ssl  10:52   0:00 /usr/bin/docke
            ├─1670 /usr/bin/dockerd        
            └─1677 containerd --config /var/run/docker/containerd/containerd.toml --log-level info       
 
-###### 6)镜像加速
+##### 6)镜像加速
 [root@master-1 system]# cd /etc/docker       
 [root@master-1 docker]# vim daemon.json                  
 {             
 "registry-mirrors": ["https://23h04een.mirror.aliyuncs.com"]                    
 }           
 
-###### 7)查看版本      
+##### 7)查看版本      
 [root@master-1 docker]# docker version      
 Client: Docker Engine - Community     
  Version:           19.03.13     
@@ -213,7 +213,7 @@ Server: Docker Engine - Community
   GitCommit:        fec3683       
 [root@master-1 docker]#          
 
-###### 8)测试
+##### 8)测试
 [root@master-1 docker]# docker pull hello-world            
 Using default tag: latest      
 latest: Pulling from library/hello-world      
@@ -248,7 +248,7 @@ For more examples and ideas, visit:
 [root@master-1 docker]#                    
 若是出现了上图的内容则说明hello-world运行成功。
 
-###### 9)配置免密        
+##### 9)配置免密        
 分别复制key到master         
 [root@node-1 .ssh]# ssh-copy-id root@172.16.201.134     
 [root@node-2 .ssh]# ssh-copy-id root@172.16.201.134            
@@ -263,7 +263,7 @@ master：
 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC0Z5AFJNpJMy/dKI39iGMUOVOMGiczhzqdnRKLX2ikyPrAHpXCdOz+3nhXE4m3V1pGWo9gXZNyUG8b2cqtVHLCLGsq4j1qTB9JqVBsWl0kE137E5UEJ0bs9OoKMofeiBQhKPTbS9uCoTrJbJHLr0DAFEE30EYmMtq6thPkTn6eTAzaMHfVH16b76orOLYQ1SWKYPrFMAAz8uDBQ8ncbslneYJF9K9rVHVzNdLJ5/FUmygI2sKXwVpcH7DwpuNK0wPOrMlp0HWeeVeaBoW73POi3Gd2ON7NUP37/U6veai6p7HbAU7AuteUdQlhdE8sj9kD49aDQCwuv4UkEFzuPRO1 root@node-1         
 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC5EpSsO0h0nfj3kTAKkF/IW5MnmWBN0W3SAw26lh51K/TVmt9v6nvESpqiD1NkSFpNxqx77JljDI0N6fwZN8V3+FyPKU863fPZT0WU1KlwLUp70yCRXjpyO1QaT/f1sdlPs+Tkrair2vXbav41snbT5/2Sze3QiNUMS/Z6g3RfwpXmmd5epetp3VwwkGdrJGt1LDrPnE+YUx8rjQknv1rZCJISXsejdeQFDA01/CPFQxt1Qhu/uhywS2g+qIZPbxf/vBdm779x2q/ctX+3bjnaPmZdaIXG2JRgD5a//f0Uur/wjVHwrJzgPbo9GIE4dGdP8dW7Ni04Uym4aL9q2Iv5 root@node-2          
 
-###### 10)测试
+##### 10)测试
 [root@node-2 .ssh]# ssh root@172.16.201.134         
 Last login: Wed Sep 22 11:14:30 2021 from 172.16.201.1       
 [root@master-1 ~]# exit      
