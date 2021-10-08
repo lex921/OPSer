@@ -1,0 +1,33 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: tomcat01
+  namespace: test-ns
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      k8s-app: tomcat01
+  template:
+    metadata:
+      labels:
+        k8s-app: tomcat01
+    spec:
+      containers:
+        - name: tomcat
+          image: tomcat
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  name: tomcat-svc
+  namespace: test-ns
+spec:
+  selector:
+    k8s-app: tomcat01
+  ports:
+    - port: 8080
+      targetPort: 8080

@@ -1,0 +1,33 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: httpd01
+  namespace: test-ns
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      k8s-app: httpd01
+  template:
+    metadata:
+      labels:
+        k8s-app: httpd01
+    spec:
+      containers:
+        - name: httpd
+          image: httpd
+
+---
+
+kind: Service
+apiVersion: v1
+metadata:
+  name: httpd-svc
+  namespace: test-ns
+spec:
+  selector:
+    k8s-app: httpd01
+  ports:
+    - port: 80
+      targetPort: 80
