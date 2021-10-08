@@ -1,0 +1,230 @@
+
+管理K8S
+
+######查看合并后的kubeconfig设置，或者一个指定的kubeconfig配置文件
+[root@master-1 ~]# kubectl config view
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority-data: DATA+OMITTED
+    server: https://172.16.201.134:6443
+  name: kubernetes
+contexts:
+- context:
+    cluster: kubernetes
+    user: kubernetes-admin
+  name: kubernetes-admin@kubernetes
+current-context: kubernetes-admin@kubernetes
+kind: Config
+preferences: {}
+users:
+- name: kubernetes-admin
+  user:
+    client-certificate-data: REDACTED
+    client-key-data: REDACTED
+
+
+
+######查看集群信息
+[root@master-1 ~]# kubectl cluster-info
+Kubernetes master is running at https://172.16.201.134:6443
+KubeDNS is running at https://172.16.201.134:6443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+
+To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
+
+
+######列出 Pod 中的容器
+可以使用 range 操作进一步控制格式化，以单独操作每个元素。
+[root@master-1 ~]# kubectl get pods --all-namespaces -o=jsonpath='{range .items[*]}{"\n"}{.metadata.name}{":\t"}{range .spec.containers[*]}{.image}{", "}{end}{end}' |\
+> sort
+coredns-6d56c8448f-mp5lz:       registry.aliyuncs.com/google_containers/coredns:1.7.0, 
+coredns-6d56c8448f-wnqxj:       registry.aliyuncs.com/google_containers/coredns:1.7.0, 
+dashboard-metrics-scraper-79c5968bdc-bcm4d:     kubernetesui/metrics-scraper:v1.0.6, 
+etcd-master-1:  registry.aliyuncs.com/google_containers/etcd:3.4.13-0, 
+kube-apiserver-master-1:        registry.aliyuncs.com/google_containers/kube-apiserver:v1.19.9, 
+kube-controller-manager-master-1:       registry.aliyuncs.com/google_containers/kube-controller-manager:v1.19.9, 
+kube-flannel-ds-mmhsm:  quay.io/coreos/flannel:v0.14.0, 
+kube-flannel-ds-rz2xj:  quay.io/coreos/flannel:v0.14.0, 
+kube-flannel-ds-ts9fm:  quay.io/coreos/flannel:v0.14.0, 
+kube-proxy-bkck2:       registry.aliyuncs.com/google_containers/kube-proxy:v1.19.9, 
+kube-proxy-c6fdx:       registry.aliyuncs.com/google_containers/kube-proxy:v1.19.9, 
+kube-proxy-phjdh:       registry.aliyuncs.com/google_containers/kube-proxy:v1.19.9, 
+kubernetes-dashboard-9f9799597-529zk:   kubernetesui/dashboard:v2.2.0, 
+kube-scheduler-master-1:        registry.aliyuncs.com/google_containers/kube-scheduler:v1.19.9, 
+
+######列出以标签过滤后的 Pod 的所有容器
+要获取匹配特定标签的 Pod，请使用 -l 参数。以下匹配仅与标签 app=nginx 相符的 Pod。
+kubectl get pods --all-namespaces -o=jsonpath="{.items[*].spec.containers[*].image}" -l app=nginx
+
+######列出以命名空间过滤后的 Pod 的所有容器
+要获取匹配特定命名空间的 Pod，请使用 namespace 参数。以下仅匹配 kube-system 命名空间下的 Pod。
+[root@master-1 ~]# kubectl get pods --namespace kube-system -o jsonpath="{.items[*].spec.containers[*].image}"
+registry.aliyuncs.com/google_containers/coredns:1.7.0 registry.aliyuncs.com/google_containers/coredns:1.7.0 registry.aliyuncs.com/google_containers/etcd:3.4.13-0 registry.aliyuncs.com/google_containers/kube-apiserver:v1.19.9 registry.aliyuncs.com/google_containers/kube-controller-manager:v1.19.9 quay.io/coreos/flannel:v0.14.0 quay.io/coreos/flannel:v0.14.0 quay.io/coreos/flannel:v0.14.0 registry.aliyuncs.com/google_containers/kube-proxy:v1.19.9 registry.aliyuncs.com/google_containers/kube-proxy:v1.19.9 registry.aliyuncs.com/google_containers/kube-proxy:v1.19.9 registry.aliyuncs.com/google_containers/kube-scheduler:v1.19.9[root@master-1 ~]# 
+
+######使用 go-template 代替 jsonpath 来获取容器
+作为 jsonpath 的替代，Kubectl 支持使用 go-templates 来格式化输出
+[root@master-1 ~]# kubectl get pods --all-namespaces -o go-template --template="{{range .items}}{{range .spec.containers}}{{.image}} {{end}}{{end}}"
+registry.aliyuncs.com/google_containers/coredns:1.7.0 registry.aliyuncs.com/google_containers/coredns:1.7.0 registry.aliyuncs.com/google_containers/etcd:3.4.13-0 registry.aliyuncs.com/google_containers/kube-apiserver:v1.19.9 registry.aliyuncs.com/google_containers/kube-controller-manager:v1.19.9 quay.io/coreos/flannel:v0.14.0 quay.io/coreos/flannel:v0.14.0 quay.io/coreos/flannel:v0.14.0 registry.aliyuncs.com/google_containers/kube-proxy:v1.19.9 registry.aliyuncs.com/google_containers/kube-proxy:v1.19.9 registry.aliyuncs.com/google_containers/kube-proxy:v1.19.9 registry.aliyuncs.com/google_containers/kube-scheduler:v1.19.9 kubernetesui/metrics-scraper:v1.0.6 kubernetesui/dashboard:v2.2.0 [root@master-1 ~]# 
+
+
+#####注意：重新初始化得先执行这几步
+docker rm -f `docker ps -a -q`
+rm -rf /etc/kubernetes/*
+rm -rf /var/lib/etcd/
+kubeadm reset
+
+
+
+
+#####移除NODE节点的方法（master执行）
+1：先将节点设置为维护模式(k8s-node1是节点名称)
+
+[root@k8s-master ~]# kubectl drain k8s-node1 --delete-local-data --force --ignore-daemonsets
+node/k8s-node1 cordoned
+node/k8s-node1 drained
+2：然后删除节点
+
+[root@k8s-master ~]# kubectl delete node k8s-node1
+node "k8s-node1" drained
+3：查看节点
+
+[root@k8s-master ~]# kubectl get nodes
+NAME         STATUS   ROLES    AGE    VERSION
+k8s-master   Ready    master   18m    v1.17.0
+k8s-node2    Ready    <none>   5m7s   v1.17.0
+发现k8s-node1节点已经被删除了
+
+####如果这个时候再想添加进来这个node，需要执行两步操作
+1：停掉kubelet(需要添加进来的节点操作)
+
+[root@k8s-node2 ~]# systemctl stop kubelet
+2：删除相关文件
+
+[root@k8s-node2 ~]# rm -rf /etc/kubernetes/*
+3：添加节点
+
+kubeadm join 192.168.182.135:6443 --token 7rpjfp.n3vg39zrgstzr0rs \
+--discovery-token-ca-cert-hash sha256:8c5aa1a4e82e70fed62b02e8d7bff54c801251b5ee40c7cec68a8c214dcc1234
+4：查看节点
+
+[root@k8s-master ~]# kubectl get nodes
+NAME         STATUS     ROLES    AGE   VERSION
+k8s-master   Ready      master   24m   v1.17.0
+k8s-node1    NotReady   <none>   6s    v1.17.0
+k8s-node2    Ready      <none>   10m   v1.17.0
+
+
+
+
+
+####忘掉token再次添加进k8s集群
+1：主节点执行命令
+
+获取token
+[root@k8s-master ~]# kubeadm token list
+TOKEN                     TTL         EXPIRES                     USAGES                   DESCRIPTION                                                EXTRA GROUPS
+7rpjfp.n3vg39zrgstzr0rs   23h         2019-12-30T20:01:50+08:00   authentication,signing   The default bootstrap token generated by 'kubeadm init'.   system:bootstrappers:kubeadm:default-node-token
+
+2： 获取ca证书sha256编码hash值
+[root@k8s-master ~]# openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | openssl dgst -sha256 -hex | sed 's/^.* //'
+8c5aa1a4e82e70fed62b02e8d7bff54c801251b5ee40c7cec68a8c214dcc1234
+
+3：从节点执行如下的命令
+[root@k8s-master ~]# systemctl stop kubelet
+
+4：删除相关文件
+[root@k8s-master ~]# rm -rf /etc/kubernetes/*
+
+5：加入集群
+指定主节点IP，端口是6443
+在生成的证书前有sha256:
+kubeadm join 192.168.64.10:6443 --token 7rpjfp.n3vg39zrgstzr0rs  --discovery-token-ca-cert-hash sha256:8c5aa1a4e82e70fed62b02e8d7bff54c801251b5ee40c7cec68a8c214dcc1234
+
+
+####常用命令
+1、查看node
+#######o wide以yaml格式显示详细信息
+kubectl get node -o wide
+
+2、创建deployments
+kubectl run net-test --image=alpine --replicas=2 sleep 10
+
+3、查看deployments详情
+kubectl describe deployment net-test
+
+4、删除deployments
+kubectl delete deployment net-test -n default
+
+5、查看pod
+kubectl get pod -o wide
+
+6、查看pod的详情
+kubectl describe pod net-test-5767cb94df-7lwtq
+
+7、手动扩容缩容
+#######通过执行扩容命令，对某个deployment直接进行扩容：
+$ kubectl  scale deployment net-test --replicas=4
+#######当要缩容，减少副本数量即可：
+$ kubectl  scale deployment net-test --replicas=2
+
+
+
+
+
+
+####三个类型端口
+#####1：三个类型端口所应用位置的不同
+port是service的的端口
+
+targetport是pod也就是容器的端口
+
+nodeport是容器所在宿主机的端口(实质上也是通过service暴露给了宿主机，而port却没有)
+
+#####2：在作用上
+
+######port
+的主要作用是集群内其他pod访问本pod的时候，需要的一个port
+如nginx的pod访问mysql的pod，那么mysql的pod的service可以如下定义，由此可以这样理解，port是service的port，nginx访问service的33306
+apiVersion: v1
+kind: Service
+metadata:
+name: mysql-service
+spec:
+ports:
+- port: 33306
+targetPort: 3306
+selector:
+name: mysql-pod
+targetport
+
+同样的，看上面的targetport，targetport说过是pod暴露出来的port端口，当nginx的一个请求到达service的33306端口时，service就会将此请求根据selector中的name，将请求转发到mysql-pod这个pod的3306端口上
+
+
+######nodeport
+nodeport就很好理解了，它是集群外的客户访问，集群内的服务时，所访问的port，比如客户访问下面的集群中的nginx，就是这样的方式，ip:30001
+apiVersion: v1
+kind: Service
+metadata:
+name: nginx-service
+spec:
+type: NodePort // 有配置NodePort，外部流量可访问k8s中的服务
+ports:
+- port: 30080 // 服务访问端口
+targetPort: 80 // 容器端口
+nodePort: 30001 // NodePort
+selector: name: nginx-pod
+
+nodeport是集群外流量访问集群内服务的端口类型，比如客户访问nginx，apache，port是集群内的pod互相通信用的端口类型，比如nginx访问mysql，而mysql是不需要让客户访问到的，最后targetport，顾名思义，目标端口，也就是最终端口，也就是pod的端口。
+
+#####3：总结一下
+nodeport是集群外流量访问集群内服务的端口类型，比如客户访问nginx，apache，port是集群内的pod互相通信用的端口类型
+比如nginx访问mysql，而mysql是不需要让客户访问到的，最后targetport，顾名思义，目标端口，也就是最终端口，也就是pod的端口。
+
+
+
+[root@master-1 ~]# kubectl get svc  --all-namespaces
+NAMESPACE              NAME                        TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                  AGE
+default                kubernetes                  ClusterIP   10.1.0.1       <none>        443/TCP                  6h5m
+kube-system            kube-dns                    ClusterIP   10.1.0.10      <none>        53/UDP,53/TCP,9153/TCP   6h5m
+kubernetes-dashboard   dashboard-metrics-scraper   ClusterIP   10.1.156.183   <none>        8000/TCP                 3h59m
+kubernetes-dashboard   kubernetes-dashboard        NodePort    10.1.27.195    <none>        443:30001/TCP            3h59m
