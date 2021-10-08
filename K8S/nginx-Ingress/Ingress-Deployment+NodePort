@@ -1,0 +1,319 @@
+##(二)、Deployment+NodePort模式的Service部署方式
+
+只是简单增加两个nodePort字段，指定service在Node节点映射的端口，这样在上层负载均衡继续做代理就会方便很多。
+由于这里的nodePort是对service端口的映射，所以会自动在所有Node节点生成端口映射。
+接着就可以在上层负载均衡器做反向代理，将流量负载到所有Node的30080和30443端口，
+最后对外只需要暴露负载均衡的IP+Port即可。
+
+
+
+######yaml文件配置修改
+[root@k8s-master ingress]# vim ingress-deploy.yaml
+………………
+apiVersion: apps/v1
+kind: DaemonSet   # 从Deployment改为DaemonSet
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+  labels:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/part-of: ingress-nginx
+spec:
+  #replicas: 1   # 注释掉
+………………
+      nodeSelector:
+      # 如下几行为新加行  作用【允许在master节点运行】
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+………………
+          ports:
+            - name: http
+              containerPort: 80
+              hostPort: 80    # 添加处【可在宿主机通过该端口访问Pod】
+              protocol: TCP
+							nodePort: 30080
+            - name: https
+              containerPort: 443
+              hostPort: 443   # 添加处【可在宿主机通过该端口访问Pod】
+              protocol: TCP
+							nodePort: 30443
+………………
+
+
+可能有些人会对ingress-controller和ingress这两个概念不理解，会感觉太抽象。
+做个简单的比喻：
+1、ingress-controller相当于在pod中部署了一个“nginx”的负载均衡器，对外只需要暴露这个负载均衡器的端口；
+2、ingress则相当于在“nginx”中创建代理的配置文件，指定访问过来的流量被转发到哪个service资源。
+
+下面是一个大概的对照关系：
+ingress-controller——>>>nginx
+ingress———————>>/etc/nginx/conf.d/xxx.com.conf文件
+
+
+
+
+
+
+
+
+#####增加站点www.test02.com：
+[root@master-1 ~]# cat test-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: test-ingress
+  namespace: test-ns
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: test-ingress-class
+  rules:
+  - host: www.test02.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: tomcat-svc
+            port:
+             number: 8080
+
+
+  - host: www.test01.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /
+        backend:
+          service:
+            name: httpd-svc
+            port: 
+             number: 80
+      - pathType: Prefix
+        path: /tomcat
+        backend:
+          service:
+            name: tomcat-svc
+            port: 
+             number: 8080
+[root@master-1 ~]# 
+
+
+[root@master-1 ~]# kubectl apply -f test-ingress.yaml 
+ingress.networking.k8s.io/test-ingress configured
+
+
+客户端访问：
+lex@lexliudeMacBook-Pro Downloads %curl  -I www.test02.com/
+HTTP/1.1 200 
+Date: Sun, 26 Sep 2021 04:01:32 GMT
+Content-Type: text/html;charset=UTF-8
+Connection: keep-alive
+Set-Cookie: JSESSIONID=F39634B026FC8389D3F5E42DEE21C848; Path=/; HttpOnly
+
+
+
+##(三)、配置HTTPS
+
+参考：https://blog.51cto.com/u_14306186/2523096
+
+
+
+
+[root@master-1 https]# openssl req -x509 -sha256 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/CN=nginxsvc/O=nginxsvc"
+Generating a 2048 bit RSA private key
+.+++
+..................+++
+writing new private key to 'tls.key'
+-----
+
+
+[root@master-1 https]# ll
+total 8
+-rw-r--r-- 1 root root 1143 Sep 26 13:38 tls.crt
+-rw-r--r-- 1 root root 1704 Sep 26 13:38 tls.key
+
+[root@master-1 https]# kubectl create secret tls tls-secret --key=tls.key --cert tls.crt
+secret/tls-secret created
+
+[root@master-1 https]# kubectl get secret
+NAME                  TYPE                                  DATA   AGE
+default-token-b4d9n   kubernetes.io/service-account-token   3      4d1h
+tls-secret            kubernetes.io/tls                     2      16s
+
+[root@master-1 https]# cat httpd03.yaml 
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: test-ingress
+  namespace: test-ns
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  tls:
+  - hosts:
+      - www.test03.com
+    secretName: tls-secret
+  ingressClassName: test-ingress-class
+  rules:
+  - host: www.test03.com
+    http:
+      paths:
+      - pathType: Prefix
+        path: /tomcat-tls
+        backend:
+          service:
+            name: tomcat-svc
+            port:
+             number: 8080
+[root@master-1 https]# 
+
+
+#####注：提交新的Ingress配置，会覆盖之前测试脚本
+[root@master-1 https]# kubectl apply -f httpd03.yaml
+ingress.networking.k8s.io/test-ingress configured
+#####注：提交新的Ingress配置，会覆盖之前测试脚本
+
+
+[root@master-1 https]# kubectl get pod,svc,ing -n test-ns -o wide  
+Warning: extensions/v1beta1 Ingress is deprecated in v1.14+, unavailable in v1.22+; use networking.k8s.io/v1 Ingress
+NAME                           READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+pod/httpd01-699c8fcff4-bhn84   1/1     Running   0          2d2h    10.244.2.26   node-2   <none>           <none>
+pod/tomcat01-95fc6cd5d-p85g6   1/1     Running   0          2d18h   10.244.1.12   node-1   <none>           <none>
+
+NAME                 TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)    AGE     SELECTOR
+service/httpd-svc    ClusterIP   10.1.142.189   <none>        80/TCP     2d2h    k8s-app=httpd01
+service/tomcat-svc   ClusterIP   10.1.29.129    <none>        8080/TCP   2d18h   k8s-app=tomcat01
+
+NAME                              CLASS                HOSTS            ADDRESS                         PORTS     AGE
+ingress.extensions/test-ingress   test-ingress-class   www.test03.com   172.16.201.135,172.16.201.136   80, 443   44h
+
+
+访问测试正常：
+lex@lexliudeMacBook-Pro Downloads %curl  -I https://www.test03.com/tomcat-tls
+curl: (60) SSL certificate problem: unable to get local issuer certificate
+More details here: https://curl.haxx.se/docs/sslcerts.html
+
+curl failed to verify the legitimacy of the server and therefore could not
+establish a secure connection to it. To learn more about this situation and
+how to fix it, please visit the web page mentioned above.
+
+浏览器访问：https://www.test03.com/tomcat-tls
+###### K8S #######
+
+
+
+[root@master-1 ~]# kubectl apply -f  test-ingress.yaml
+ingress.networking.k8s.io/test-ingress created
+
+####多站点证书通配
+  tls:
+  - hosts:
+      - "*.test04.com"
+    secretName: tls-secret
+  ingress_nameName: test-ingress-class
+  rules:
+  - host: "*.test04.com"
+    http:
+      paths:
+      - pathType: Prefix
+        path: /tomcat-tls
+        backend:
+          service:
+            name: tomcat-svc
+            port:
+             number: 8080
+
+[root@master-1 ~]# kubectl apply -f  test-ingress.yaml
+ingress.networking.k8s.io/test-ingress configured
+
+
+[root@master-1 https]#  kubectl get pod,svc,ing -n test-ns -o wide  
+Warning: extensions/v1beta1 Ingress is deprecated in v1.14+, unavailable in v1.22+; use networking.k8s.io/v1 Ingress
+NAME                           READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+pod/httpd01-699c8fcff4-bhn84   1/1     Running   0          2d3h    10.244.2.26   node-2   <none>           <none>
+pod/tomcat01-95fc6cd5d-p85g6   1/1     Running   0          2d18h   10.244.1.12   node-1   <none>           <none>
+
+NAME                 TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)    AGE     SELECTOR
+service/httpd-svc    ClusterIP   10.1.142.189   <none>        80/TCP     2d3h    k8s-app=httpd01
+service/tomcat-svc   ClusterIP   10.1.29.129    <none>        8080/TCP   2d18h   k8s-app=tomcat01
+
+NAME                              CLASS                HOSTS          ADDRESS                         PORTS     AGE
+ingress.extensions/test-ingress   test-ingress-class   *.test04.com   172.16.201.135,172.16.201.136   80, 443   18m
+
+
+[root@master-1 https]# cat /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4 master-1
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+
+172.16.201.135 www.test01.com
+172.16.201.135 www.test02.com
+172.16.201.135 www.test03.com
+172.16.201.135 www.test04.com
+172.16.201.135 i.test04.com
+
+
+#####*.test04.com下面所有域名都可以访问
+#####i.test04.com 和 www.test04.com 浏览器都可以访问
+
+
+测试正常：
+[root@master-1 https]# curl -k --cert tls.key -I https://i.test04.com/tomcat-tls
+HTTP/1.1 200 
+Date: Sun, 26 Sep 2021 06:43:18 GMT
+Content-Type: text/html;charset=UTF-8
+Connection: keep-alive
+Set-Cookie: JSESSIONID=E72F11F2F54E0CD9B5FE2CF31915E4CE; Path=/; HttpOnly
+Strict-Transport-Security: max-age=15724800; includeSubDomains
+
+
+[root@master-1 https]# curl -k --cert tls.key -I https://www.test04.com/tomcat-tls
+HTTP/1.1 200 
+Date: Sun, 26 Sep 2021 06:43:41 GMT
+Content-Type: text/html;charset=UTF-8
+Connection: keep-alive
+Set-Cookie: JSESSIONID=5C242F6A414CFF91907A431D86074053; Path=/; HttpOnly
+Strict-Transport-Security: max-age=15724800; includeSubDomains
+
+
+lex@lexliudeMacBook-Pro Downloads %curl  -I https://www.test04.com/tomcat-tls
+curl: (60) SSL certificate problem: unable to get local issuer certificate
+More details here: https://curl.haxx.se/docs/sslcerts.html
+
+curl failed to verify the legitimacy of the server and therefore could not
+establish a secure connection to it. To learn more about this situation and
+how to fix it, please visit the web page mentioned above.
+
+
+
+lex@lexliudeMacBook-Pro Downloads %curl  -I https://i.test04.com/tomcat-tls
+curl: (60) SSL certificate problem: unable to get local issuer certificate
+More details here: https://curl.haxx.se/docs/sslcerts.html
+
+curl failed to verify the legitimacy of the server and therefore could not
+establish a secure connection to it. To learn more about this situation and
+how to fix it, please visit the web page mentioned above.
+
+
+[root@master-1 ~]# kubectl get pod -A | grep 'ingre'
+ingress-nginx   ingress-nginx-admission-create-4wp6d   0/1     Completed   0          46h
+ingress-nginx   ingress-nginx-admission-patch-glk59    0/1     Completed   0          46h
+ingress-nginx   ingress-nginx-controller-s7x2z         1/1     Running     0          46h
+ingress-nginx   ingress-nginx-controller-xf68j         1/1     Running     0          46h
+
+
+[root@master-1 ~]# kubectl exec -it -n ingress-nginx ingress-nginx-controller-s7x2z bash
+bash-5.1$ cat /etc/nginx/nginx.conf|grep test
+        ## start server *.test04.com
+                server_name ~^(?<subdomain>[\w-]+)\.test04\.com$ ;
+                        set $namespace      "test-ns";
+                        set $ingress_name   "test-ingress";
+                        set $proxy_upstream_name "test-ns-tomcat-svc-8080";
+                        set $namespace      "test-ns";
+                        set $ingress_name   "test-ingress";
+        ## end server *.test04.com
+bash-5.1$ 
+
+###### 可见*.test04.com的配置
