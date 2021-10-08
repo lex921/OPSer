@@ -1,8 +1,0 @@
-kubectl apply -f r-sc.yaml
-kubectl apply -f r-pv.yaml
-kubectl apply -f r-pvc.yaml
-kubectl apply -f r.yaml
-sleep 2
-echo "============== kubectl get pod,svc,pv,pvc,sc -o wide ================="
-kubectl get pod,svc,pv,pvc,sc -o wide
-
