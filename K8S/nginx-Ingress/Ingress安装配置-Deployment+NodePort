@@ -1,4 +1,4 @@
-##(二)、Deployment+NodePort模式的Service部署方式
+##(二)、Deployment+NodePort模式的Service部署方式 
 
 只是简单增加两个nodePort字段，指定service在Node节点映射的端口，这样在上层负载均衡继续做代理就会方便很多。
 由于这里的nodePort是对service端口的映射，所以会自动在所有Node节点生成端口映射。
