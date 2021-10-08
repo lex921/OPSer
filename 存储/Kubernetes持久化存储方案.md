@@ -23,11 +23,14 @@ SDS是一种泛指，包括分布式NAS（并行文件系统），ServerSAN等
 从应用场景角度，存储分为文件存储（Posix/MPI），块存储（iSCSI/Qemu）和对象存储（S3/Swift）三大类。
 
 Kubernetes是如何给存储定义和分类呢？Kubernetes中跟存储相关的概念有PersistentVolume （PV）和PersistentVolumeClaim（PVC），PV又分为静态PV和动态PV。静态PV方式如下：
-
-图片
+<p align="center">
+   <img src="/图库/WX20211008-180429-pv.png" width="700">
+</p>
 动态PV需要引入StorageClass的概念，使用方式如下：
 
-图片
+<p align="center">
+   <img src="/图库/WX20211008-180447-pvc.png" width="700">
+</p>
 社区列举出PersistentVolume的in-tree Plugin，如下图所示。从图中可以看到，Kubernetes通过访问模式给存储分为三大类，RWO/ROX/RWX。这种分类将原有的存储概念混淆，其中包含存储协议，存储开源产品，存储商业产品，公有云存储产品等等。
 
 <p align="center">
