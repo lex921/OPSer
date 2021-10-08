@@ -1,0 +1,793 @@
+部署 Redis-Sentinel集群
+参考：
+https://www.cnblogs.com/dukuan/p/9913420.html
+
+YAML配置：
+https://github.com/dotbalo/k8s/blob/master/redis/k8s-redis-sentinel/redis-sentinel-pv.yaml
+
+
+
+###1、PV创建
+[root@master-1 redis]# mkdir -p /root/redis-sentinel/0
+[root@master-1 redis]# mkdir -p /root/redis-sentinel/1
+[root@master-1 redis]# mkdir -p /root/redis-sentinel/2
+
+
+[root@master-1 redis]# vim /etc/exports
+/root/redis-sentinel/0 *(rw,sync,no_subtree_check,no_root_squash)
+/root/redis-sentinel/1 *(rw,sync,no_subtree_check,no_root_squash)
+/root/redis-sentinel/2 *(rw,sync,no_subtree_check,no_root_squash)
+
+######配置生效
+[root@master-1 mysql]# exportfs -r
+######查看生效
+[root@master-1 mysql]# exportfs
+/root/nfs_data  <world>
+
+
+[root@master-1 redis]# exportfs
+/root/nfs_data  <world>
+/root/web1      <world>
+/root/redis-sentinel/0 <world>
+/root/redis-sentinel/1 <world>
+/root/redis-sentinel/2 <world>
+
+[root@node-1 ~]# mkdir -p /root/redis-sentinel/0
+[root@node-1 ~]# mkdir -p /root/redis-sentinel/1
+[root@node-1 ~]# mkdir -p /root/redis-sentinel/2
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/redis-sentinel/0  /root/redis-sentinel/0
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/redis-sentinel/1  /root/redis-sentinel/1
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/redis-sentinel/2  /root/redis-sentinel/2
+
+[root@node-2 ~]# mkdir -p /root/redis-sentinel/0
+[root@node-2 ~]# mkdir -p /root/redis-sentinel/1
+[root@node-2 ~]# mkdir -p /root/redis-sentinel/2
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/redis-sentinel/0  /root/redis-sentinel/0
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/redis-sentinel/1  /root/redis-sentinel/1
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/redis-sentinel/2  /root/redis-sentinel/2
+
+umount -t nfs 172.16.201.134:/k8s/redis-sentinel/0
+umount -t nfs 172.16.201.134:/k8s/redis-sentinel/1
+umount -t nfs 172.16.201.134:/k8s/redis-sentinel/2
+
+
+[root@node-1 ~]# df -h|grep redis
+172.16.201.134:/root/redis-sentinel/0   50G  4.9G   46G  10% /root/redis-sentinel/0
+172.16.201.134:/root/redis-sentinel/1   50G  4.9G   46G  10% /root/redis-sentinel/1
+172.16.201.134:/root/redis-sentinel/2   50G  4.9G   46G  10% /root/redis-sentinel/2
+
+[root@node-2 ~]#  df -h|grep redis
+172.16.201.134:/root/redis-sentinel/0   50G  4.9G   46G  10% /root/redis-sentinel/0
+172.16.201.134:/root/redis-sentinel/1   50G  4.9G   46G  10% /root/redis-sentinel/1
+172.16.201.134:/root/redis-sentinel/2   50G  4.9G   46G  10% /root/redis-sentinel/2
+
+
+######创建pv，注意Redis的空间大小按需修改
+[root@k8s-master01 redis-sentinel]#vim redis-sentinel-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-redis-sentinel-0
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Recycle
+  storageClassName: "redis-sentinel-storage-class"
+  nfs:
+    path: /root/redis-sentinel/0
+    server: 172.16.201.134
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-redis-sentinel-1
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Recycle
+  storageClassName: "redis-sentinel-storage-class"
+  nfs:
+    path: /root/redis-sentinel/1
+    server: 172.16.201.134
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-redis-sentinel-2
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  volumeMode: Filesystem
+  persistentVolumeReclaimPolicy: Recycle
+  storageClassName: "redis-sentinel-storage-class"
+  nfs:
+    path: /root/redis-sentinel/2
+    server: 172.16.201.134
+
+
+[root@master-1 sentinel]# kubectl create -f redis-sentinel-pv.yaml
+persistentvolume/pv-redis-sentinel-0 created
+persistentvolume/pv-redis-sentinel-1 created
+persistentvolume/pv-redis-sentinel-2 created
+
+[root@master-1 sentinel]# kubectl get pv
+NAME                  CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM   STORAGECLASS                   REASON   AGE
+pv-redis-sentinel-0   1Gi        RWX            Recycle          Available           redis-sentinel-storage-class            6s
+pv-redis-sentinel-1   1Gi        RWX            Recycle          Available           redis-sentinel-storage-class            6s
+pv-redis-sentinel-2   1Gi        RWX            Recycle          Available           redis-sentinel-storage-class            6s
+[root@master-1 sentinel]# 
+
+###2、创建namespace
+[root@master-1 sentinel]# kubectl create namespace public-service
+namespace/public-service created
+
+[root@master-1 ~]# kubectl get ns,cm,pod,svc,pv,pvc,sc -o wide
+
+NAME                        STATUS   AGE
+namespace/default           Active   7d6h
+namespace/ingress-nginx     Active   5d2h
+namespace/kube-node-lease   Active   7d6h
+namespace/kube-public       Active   7d6h
+namespace/kube-system       Active   7d6h
+namespace/ng                Active   44h
+namespace/public-service    Active   33s
+namespace/test-ns           Active   6d
+
+NAME                 TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE    SELECTOR
+service/kubernetes   ClusterIP   10.1.0.1     <none>        443/TCP   7d6h   <none>
+
+NAME                                   CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM   STORAGECLASS                   REASON   AGE     VOLUMEMODE
+persistentvolume/pv-redis-sentinel-0   1Gi        RWX            Recycle          Available           redis-sentinel-storage-class            2m50s   Filesystem
+persistentvolume/pv-redis-sentinel-1   1Gi        RWX            Recycle          Available           redis-sentinel-storage-class            2m50s   Filesystem
+persistentvolume/pv-redis-sentinel-2   1Gi        RWX            Recycle          Available           redis-sentinel-storage-class            2m50s   Filesystem
+[root@master-1 ~]# 
+
+###3、创建ConfigMap
+[root@master-1 sentinel]# vim redis-sentinel-configmap.yaml
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: redis-sentinel-config
+  namespace: public-service
+  labels:
+    addonmanager.kubernetes.io/mode: Reconcile
+data:
+    redis-master.conf: |
+      port 6379
+      tcp-backlog 511
+      timeout 0
+      tcp-keepalive 0
+      loglevel notice
+      databases 16
+      save 900 1
+      save 300 10
+      save 60 10000
+      stop-writes-on-bgsave-error yes
+      rdbcompression yes
+      rdbchecksum yes
+      dbfilename dump.rdb
+      dir /data/
+      slave-serve-stale-data yes
+      repl-diskless-sync no
+      repl-diskless-sync-delay 5
+      repl-disable-tcp-nodelay no
+      slave-priority 100
+      appendonly no
+      appendfilename "appendonly.aof"
+      appendfsync everysec
+      no-appendfsync-on-rewrite no
+      auto-aof-rewrite-percentage 100
+      auto-aof-rewrite-min-size 64mb
+      aof-load-truncated yes
+      lua-time-limit 5000
+      slowlog-log-slower-than 10000
+      slowlog-max-len 128
+      latency-monitor-threshold 0
+      notify-keyspace-events ""
+      hash-max-ziplist-entries 512
+      hash-max-ziplist-value 64
+      list-max-ziplist-entries 512
+      list-max-ziplist-value 64
+      set-max-intset-entries 512
+      zset-max-ziplist-entries 128
+      zset-max-ziplist-value 64
+      hll-sparse-max-bytes 3000
+      activerehashing yes
+      client-output-buffer-limit normal 0 0 0
+      client-output-buffer-limit slave 256mb 64mb 60
+      client-output-buffer-limit pubsub 64mb 16mb 60
+      hz 10
+      aof-rewrite-incremental-fsync yes
+    redis-slave.conf: |
+      port 6379
+      slaveof redis-sentinel-master-ss-0.redis-sentinel-master-ss.public-service.svc.cluster.local 6379
+      tcp-backlog 511
+      timeout 0
+      tcp-keepalive 0
+      loglevel notice
+      databases 16
+      save 900 1
+      save 300 10
+      save 60 10000
+      stop-writes-on-bgsave-error yes
+      rdbcompression yes
+      rdbchecksum yes
+      dbfilename dump.rdb
+      dir /data/
+      slave-serve-stale-data yes
+      slave-read-only yes
+      repl-diskless-sync no
+      repl-diskless-sync-delay 5
+      repl-disable-tcp-nodelay no
+      slave-priority 100
+      appendonly no
+      appendfilename "appendonly.aof"
+      appendfsync everysec
+      no-appendfsync-on-rewrite no
+      auto-aof-rewrite-percentage 100
+      auto-aof-rewrite-min-size 64mb
+      aof-load-truncated yes
+      lua-time-limit 5000
+      slowlog-log-slower-than 10000
+      slowlog-max-len 128
+      latency-monitor-threshold 0
+      notify-keyspace-events ""
+      hash-max-ziplist-entries 512
+      hash-max-ziplist-value 64
+      list-max-ziplist-entries 512
+      list-max-ziplist-value 64
+      set-max-intset-entries 512
+      zset-max-ziplist-entries 128
+      zset-max-ziplist-value 64
+      hll-sparse-max-bytes 3000
+      activerehashing yes
+      client-output-buffer-limit normal 0 0 0
+      client-output-buffer-limit slave 256mb 64mb 60
+      client-output-buffer-limit pubsub 64mb 16mb 60
+      hz 10
+      aof-rewrite-incremental-fsync yes
+    redis-sentinel.conf: |
+      port 26379
+      dir /data
+      sentinel monitor mymaster redis-sentinel-master-ss-0.redis-sentinel-master-ss.public-service.svc.cluster.local 6379 2
+      sentinel down-after-milliseconds mymaster 30000
+      sentinel parallel-syncs mymaster 1
+      sentinel failover-timeout mymaster 180000
+
+
+[root@master-1 sentinel]# kubectl create -f redis-sentinel-configmap.yaml
+configmap/redis-sentinel-config created
+[root@master-1 sentinel]# kubectl get configmap -n public-service
+NAME                    DATA   AGE
+redis-sentinel-config   3      5s
+[root@master-1 sentinel]# 
+
+注意，此时configmap中redis-slave.conf的slaveof的master地址为ss里面的Headless Service地址。
+
+
+
+
+###4、创建service
+　　service主要提供pods之间的互访，StatefulSet主要用Headless Service通讯，格式：statefulSetName-{0..N-1}.serviceName.namespace.svc.cluster.local
+
+　　- serviceName为Headless Service的名字
+　　- 0..N-1为Pod所在的序号，从0开始到N-1
+　　- statefulSetName为StatefulSet的名字
+　　- namespace为服务所在的namespace，Headless Servic和StatefulSet必须在相同的namespace
+　　- .cluster.local为Cluster Domain
+
+　　如本集群的HS为：
+　　　　Master：
+　　　　　　redis-sentinel-master-ss-0.redis-sentinel-master-ss.public-service.svc.cluster.local:6379
+　　　　Slave：
+　　　　　　redis-sentinel-slave-ss-0.redis-sentinel-slave-ss.public-service.svc.cluster.local:6379
+　　　　　　redis-sentinel-slave-ss-1.redis-sentinel-slave-ss.public-service.svc.cluster.local:6379
+
+
+[root@master-1 sentinel]# vim redis-sentinel-service-master.yaml
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    app: redis-sentinel-master-ss
+  name: redis-sentinel-master-ss
+  namespace: public-service
+spec:
+  clusterIP: None
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+  selector:
+    app: redis-sentinel-master-ss
+[root@master-1 sentinel]# vim redis-sentinel-service-slave.yaml
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    app: redis-sentinel-slave-ss
+  name: redis-sentinel-slave-ss
+  namespace: public-service
+spec:
+  clusterIP: None
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: 6379
+  selector:
+    app: redis-sentinel-slave-ss
+[root@master-1 sentinel]# 
+
+
+[root@master-1 sentinel]# kubectl create -f redis-sentinel-service-master.yaml -f redis-sentinel-service-slave.yaml
+service/redis-sentinel-master-ss created
+service/redis-sentinel-slave-ss created
+
+[root@master-1 sentinel]# kubectl get service -n public-service
+NAME                       TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)    AGE
+redis-sentinel-master-ss   ClusterIP   None         <none>        6379/TCP   6s
+redis-sentinel-slave-ss    ClusterIP   None         <none>        6379/TCP   6s
+
+
+
+###5、创建StatefulSet
+[root@master-1 sentinel]# vim redis-sentinel-rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redis-sentinel
+  namespace: public-service
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: redis-sentinel
+  namespace: public-service
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: redis-sentinel
+  namespace: public-service
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: redis-sentinel
+subjects:
+- kind: ServiceAccount
+  name: redis-sentinel
+  namespace: public-service
+[root@master-1 sentinel]# 
+
+
+
+[root@master-1 sentinel]# vim redis-sentinel-ss-master.yaml
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  labels:
+    app: redis-sentinel-master-ss
+  name: redis-sentinel-master-ss
+  namespace: public-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-sentinel-master-ss
+  serviceName: redis-sentinel-master-ss
+  template:
+    metadata:
+      labels:
+        app: redis-sentinel-master-ss
+    spec:
+      containers:
+      - args:
+        - -c
+        - cp /mnt/redis-master.conf /data/ ; redis-server /data/redis-master.conf
+        command:
+        - sh
+        image: redis
+        imagePullPolicy: IfNotPresent
+        name: redis-master
+        ports:
+        - containerPort: 6379
+          name: masterport
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /mnt/
+          name: config-volume
+          readOnly: false
+        - mountPath: /data/
+          name: redis-sentinel-master-storage
+          readOnly: false
+      serviceAccountName: redis-sentinel
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          items:
+          - key: redis-master.conf
+            path: redis-master.conf
+          name: redis-sentinel-config 
+        name: config-volume
+c
+[root@master-1 sentinel]# 
+
+[root@master-1 sentinel]# vim redis-sentinel-ss-slave.yaml
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  labels:
+    app: redis-sentinel-slave-ss
+  name: redis-sentinel-slave-ss
+  namespace: public-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: redis-sentinel-slave-ss
+  serviceName: redis-sentinel-slave-ss
+  template:
+    metadata:
+      labels:
+        app: redis-sentinel-slave-ss
+    spec:
+      containers:
+      - args:
+        - -c
+        - cp /mnt/redis-slave.conf /data/ ; redis-server /data/redis-slave.conf
+        command:
+        - sh
+        image: redis
+        imagePullPolicy: IfNotPresent
+        name: redis-slave
+        ports:
+        - containerPort: 6379
+          name: slaveport
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /mnt/
+          name: config-volume
+          readOnly: false
+        - mountPath: /data/
+          name: redis-sentinel-slave-storage
+          readOnly: false
+      serviceAccountName: redis-sentinel
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          items:
+          - key: redis-slave.conf
+            path: redis-slave.conf
+          name: redis-sentinel-config 
+        name: config-volume
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-sentinel-slave-storage
+    spec:
+      accessModes:
+      - ReadWriteMany
+      storageClassName: "redis-sentinel-storage-class"
+      resources:
+        requests:
+          storage: 1Gi
+[root@master-1 sentinel]# 
+
+
+
+
+kubectl delete -f redis-sentinel-ss-slave.yaml
+
+
+kubectl delete -f redis-sentinel-rbac.yaml -f redis-sentinel-ss-master.yaml -f redis-sentinel-ss-slave.yaml
+
+
+[root@master-1 sentinel]# kubectl create -f redis-sentinel-rbac.yaml -f redis-sentinel-ss-master.yaml -f redis-sentinel-ss-slave.yaml
+serviceaccount/redis-sentinel created
+ rbac.authorization.k8s.io/v1 Role
+role.rbac.authorization.k8s.io/redis-sentinel created
+ rbac.authorization.k8s.io/v1 RoleBinding
+rolebinding.rbac.authorization.k8s.io/redis-sentinel created
+statefulset.apps/redis-sentinel-master-ss created
+statefulset.apps/redis-sentinel-slave-ss created
+
+
+[root@master-1 sentinel]# kubectl get statefulset -n public-service
+NAME                       READY   AGE
+redis-sentinel-master-ss   1/1     2m1s
+redis-sentinel-slave-ss    2/2     2m1s
+
+
+[root@master-1 sentinel]# kubectl get pods -n public-service
+NAME                         READY   STATUS    RESTARTS   AGE
+redis-sentinel-master-ss-0   1/1     Running   0          2m6s
+redis-sentinel-slave-ss-0    1/1     Running   0          2m6s
+redis-sentinel-slave-ss-1    1/1     Running   0          87s
+[root@master-1 sentinel]# 
+
+
+此时相当于已经在k8s上创建了Redis的主从模式。
+
+
+###6、测试：
+
+####master连接slave测试
+[root@master-1 sentinel]# kubectl exec -ti redis-sentinel-master-ss-0 -n public-service -- redis-cli -h redis-sentinel-slave-ss-0.redis-sentinel-slave-ss.public-service.svc.cluster.local  ping
+PONG
+[root@master-1 sentinel]# kubectl exec -ti redis-sentinel-master-ss-0 -n public-service -- redis-cli -h redis-sentinel-slave-ss-1.redis-sentinel-slave-ss.public-service.svc.cluster.local  ping
+PONG
+[root@master-1 sentinel]# 
+
+####slave连接master测试
+[root@master-1 sentinel]# kubectl exec -ti redis-sentinel-slave-ss-0 -n public-service -- redis-cli -h redis-sentinel-master-ss-0.redis-sentinel-master-ss.public-service.svc.cluster.local  ping
+PONG
+[root@master-1 sentinel]# kubectl exec -ti redis-sentinel-slave-ss-1 -n public-service -- redis-cli -h redis-sentinel-master-ss-0.redis-sentinel-master-ss.public-service.svc.cluster.local  ping
+PONG
+[root@master-1 sentinel]# 
+
+
+####同步状态查看
+[root@master-1 sentinel]# kubectl exec -ti redis-sentinel-slave-ss-1 -n public-service -- redis-cli -h redis-sentinel-master-ss-0.redis-sentinel-master-ss.public-service.svc.cluster.local  info replication
+##### Replication
+role:master
+connected_slaves:2
+slave0:ip=10.244.2.46,port=6379,state=online,offset=546,lag=0
+slave1:ip=10.244.1.43,port=6379,state=online,offset=546,lag=1
+master_failover_state:no-failover
+master_replid:9b1bce324a94b3b68f829b63532d73bb59ec4553
+master_replid2:0000000000000000000000000000000000000000
+master_repl_offset:546
+second_repl_offset:-1
+repl_backlog_active:1
+repl_backlog_size:1048576
+repl_backlog_first_byte_offset:1
+repl_backlog_histlen:546
+[root@master-1 sentinel]# 
+
+
+
+
+####同步测试
+######master写入数据
+[root@master-1 sentinel]# kubectl exec -ti redis-sentinel-slave-ss-1 -n public-service -- redis-cli -h redis-sentinel-master-ss-0.redis-sentinel-master-ss.public-service.svc.cluster.local  set test test_data
+OK
+
+ 
+[root@master-1 sentinel]# kubectl exec -ti redis-sentinel-slave-ss-1 -n public-service -- redis-cli -h redis-sentinel-master-ss-0.redis-sentinel-master-ss.public-service.svc.cluster.local  get test
+"test_data"
+
+
+[root@master-1 sentinel]#  kubectl exec -ti redis-sentinel-slave-ss-1 -n public-service -- redis-cli   get test
+"test_data"
+[root@master-1 sentinel]# 
+
+
+####从节点无法写入数据
+
+[root@master-1 sentinel]# kubectl exec -ti redis-sentinel-slave-ss-1 -n public-service -- redis-cli   set k v
+(error) READONLY You can't write against a read only replica.
+[root@master-1 sentinel]# 
+
+
+[root@node-1 redis-sentinel]# pwd
+/root/redis-sentinel
+[root@node-1 redis-sentinel]# ll *
+0:
+total 8
+-rw-r--r-- 1 root root  175 Sep 29 18:50 dump.rdb
+-rw-r--r-- 1 root root 1057 Sep 29 18:50 redis-master.conf
+
+1:
+total 8
+-rw-r--r-- 1 root root  175 Sep 29 18:50 dump.rdb
+-rw-r--r-- 1 root root 1175 Sep 29 18:50 redis-slave.conf
+
+2:
+total 8
+-rw-r--r-- 1 root root  175 Sep 29 18:50 dump.rdb
+-rw-r--r-- 1 root root 1175 Sep 29 18:50 redis-slave.conf
+
+
+#####说明：个人认为在k8s上搭建Redissentinel完全没有意义，经过测试，当master节点宕机后，sentinel选择新的节点当主节点，当原master恢复后，此时无法再次成为集群节点。因为在物理机上部署时，sentinel探测以及更改配置文件都是以IP的形式，集群复制也是以IP的形式，但是在容器中，虽然采用的StatefulSet的HeadlessService来建立的主从，但是主从建立后，master、slave、sentinel记录还是解析后的IP，但是pod的IP每次重启都会改变，所有sentinel无法识别宕机后又重新启动的master节点，所以一直无法加入集群，虽然可以通过固定podIP或者使用NodePort的方式来固定，或者通过sentinel获取当前master的IP来修改配置文件，但是个人觉得也是没有必要的，sentinel实现的是高可用Redis主从，检测Redis
+
+#####Master的状态，进行主从切换等操作，但是在k8s中，无论是dc或者ss，都会保证pod以期望的值进行运行，再加上k8s自带的活性检测，当端口不可用或者服务不可用时会自动重启pod或者pod的中的服务，所以当在k8s中建立了Redis主从同步后，相当于已经成为了高可用状态，并且sentinel进行主从切换的时间不一定有k8s重建pod的时间快，所以个人认为在k8s上搭建sentinel没有意义。所以下面搭建sentinel的步骤无需在看。 
+
+
+PS：Redis Cluster：https://github.com/dotbalo/k8s/tree/master/redis/k8s-redis-cluster
+
+
+
+###7、创建sentinel
+
+[root@master-1 sentinel]# vim redis-sentinel-ss-sentinel.yaml
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  labels:
+    app: redis-sentinel-sentinel-ss
+  name: redis-sentinel-sentinel-ss
+  namespace: public-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redis-sentinel-sentinel-ss
+  serviceName: redis-sentinel-sentinel-ss
+  template:
+    metadata:
+      labels:
+        app: redis-sentinel-sentinel-ss
+    spec:
+      containers:
+      - args:
+        - -c
+        - cp /mnt/redis-sentinel.conf /data/ ; redis-sentinel /data/redis-sentinel.conf
+        command:
+        - sh
+        image: redis
+        imagePullPolicy: IfNotPresent
+        name: redis-sentinel
+        ports:
+        - containerPort: 26379
+          name: sentinel-port
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /mnt/
+          name: config-volume
+          readOnly: false
+      serviceAccountName: redis-sentinel
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          items:
+          - key: redis-sentinel.conf
+            path: redis-sentinel.conf
+          name: redis-sentinel-config 
+        name: config-volume
+
+
+[root@master-1 sentinel]# vim redis-sentinel-service-sentinel.yaml
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    app: redis-sentinel-sentinel-ss
+  name: redis-sentinel-sentinel-ss
+  namespace: public-service
+spec:
+  clusterIP: None
+  ports:
+  - name: redis
+    port: 26379
+    targetPort: 26379
+  selector:
+    app: redis-sentinel-sentinel-ss
+[root@master-1 sentinel]# 
+
+
+[root@master-1 sentinel]#  kubectl create -f redis-sentinel-ss-sentinel.yaml -f redis-sentinel-service-sentinel.yaml
+statefulset.apps/redis-sentinel-sentinel-ss created
+service/redis-sentinel-sentinel-ss created
+
+
+[root@master-1 sentinel]# kubectl get service -n public-service
+NAME                         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)     AGE
+redis-sentinel-master-ss     ClusterIP   None         <none>        6379/TCP    17m
+redis-sentinel-sentinel-ss   ClusterIP   None         <none>        26379/TCP   53s
+redis-sentinel-slave-ss      ClusterIP   None         <none>        6379/TCP    17m
+[root@master-1 sentinel]# 
+
+[root@master-1 sentinel]#  kubectl get statefulset -n public-service
+NAME                         READY   AGE
+redis-sentinel-master-ss     1/1     14m
+redis-sentinel-sentinel-ss   0/3     68s
+redis-sentinel-slave-ss      2/2     14m
+
+
+[root@master-1 sentinel]# kubectl get pods -n public-service 
+NAME                           READY   STATUS             RESTARTS   AGE
+redis-sentinel-master-ss-0     1/1     Running            0          14m
+redis-sentinel-sentinel-ss-0   0/1     CrashLoopBackOff   3          89s
+redis-sentinel-slave-ss-0      1/1     Running            0          14m
+redis-sentinel-slave-ss-1      1/1     Running            0          13m
+
+
+[root@master-1 sentinel]#  kubectl create -f redis-sentinel-ss-sentinel.yaml -f redis-sentinel-service-sentinel.yaml
+[root@master-1 sentinel]#  kubectl delete -f redis-sentinel-ss-sentinel.yaml -f redis-sentinel-service-sentinel.yaml
+
+
+kubectl describe pod  redis-sentinel-sentinel-ss-0   -n public-service     
+kubectl get event -n public-service 
+
+0/3 nodes are available: 3 pod has unbound immediate PersistentVolumeClaims.
+
+CrashLoopBackOff
+
+
+
+kubectl create -f redis-sentinel-ss-sentinel.yaml
+kubectl delete -f redis-sentinel-ss-sentinel.yaml
+
+
+
+
+
+
+
+##后面未测试：
+###8、查看哨兵状态
+[root@k8s-master01 ~]# kubectl exec -ti redis-sentinel-sentinel-ss-0 -n public-service -- redis-cli -h 127.0.0.1 -p 26379 info Sentinel
+######Sentinel
+sentinel_masters:1
+sentinel_tilt:0
+sentinel_running_scripts:0
+sentinel_scripts_queue_length:0
+sentinel_simulate_failure_flags:0
+master0:name=mymaster,status=ok,address=172.168.6.111:6379,slaves=2,sentinels=3
+
+
+
+###9、容灾测试
+
+# 查看当前数据
+[root@k8s-master01 ~]# kubectl exec -ti redis-sentinel-master-ss-0 -n public-service -- redis-cli -h 127.0.0.1 -p 6379 get test
+"test_data"
+
+
+查看状态
+[root@k8s-master01 ~]# kubectl get pods -n public-service
+NAME                           READY     STATUS    RESTARTS   AGE
+redis-sentinel-sentinel-ss-0   1/1       Running   0          22m
+redis-sentinel-sentinel-ss-1   1/1       Running   0          22m
+redis-sentinel-sentinel-ss-2   1/1       Running   0          22m
+redis-sentinel-slave-ss-0      1/1       Running   0          17h
+redis-sentinel-slave-ss-1      1/1       Running   0          17h
+
+
+查看sentinel状态
+[root@k8s-master01 redis]# kubectl exec -ti redis-sentinel-sentinel-ss-2 -n public-service -- redis-cli -h 127.0.0.1 -p 26379 info Sentinel
+######Sentinel
+sentinel_masters:1
+sentinel_tilt:0
+sentinel_running_scripts:0
+sentinel_scripts_queue_length:0
+sentinel_simulate_failure_flags:0
+master0:name=mymaster,status=ok,address=172.168.6.116:6379,slaves=2,sentinels=3
+
+[root@k8s-master01 redis]# kubectl exec -ti redis-sentinel-slave-ss-0 -n public-service -- redis-cli -h 127.0.0.1 -p 6379 info replication
+###### Replication
+role:slave
+master_host:172.168.6.116
+master_port:6379
+master_link_status:up
+master_last_io_seconds_ago:0
+master_sync_in_progress:0
+slave_repl_offset:82961
+slave_priority:100
+slave_read_only:1
+connected_slaves:0
+master_replid:4097ccd725a7ffc6f3767f7c726fc883baf3d7ef
+master_replid2:603280e5266e0a6b0f299d2b33384c1fd8c3ee64
+master_repl_offset:82961
+second_repl_offset:68647
+repl_backlog_active:1
+repl_backlog_size:1048576
+repl_backlog_first_byte_offset:1
+repl_backlog_histlen:82961
