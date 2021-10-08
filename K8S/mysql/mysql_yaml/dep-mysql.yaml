@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-db
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-mysql
+  template:
+    metadata:
+      labels:
+        app: model-mysql
+    spec:
+      containers:
+      - args:
+        - --datadir
+        - /var/lib/mysql/datadir
+        env:
+          - name: MYSQL_ROOT_PASSWORD
+            value: root
+          - name: MYSQL_USER
+            value: user
+          - name: MYSQL_PASSWORD
+            value: user
+        image: mysql:5.6
+        name: model-db-container
+        ports:
+        - containerPort: 3306
+          name: dbapi
+        volumeMounts:
+        - mountPath: /var/lib/mysql
+          name: model-db-storage
+        - name: config
+          mountPath: /etc/mysql/conf.d/my.cnf
+          subPath: my.cnf
+      volumes:
+      - name: model-db-storage
+        persistentVolumeClaim:
+          claimName: model-db-pv-claim
+      - name: config      
+        configMap:
+          name: model-db-config
+      - name: localtime
+        hostPath:
+          type: File
+          path: /etc/localtime

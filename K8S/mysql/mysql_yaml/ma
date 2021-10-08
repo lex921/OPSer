@@ -1,0 +1,5 @@
+kubectl apply -f pv-mysql.yaml
+kubectl apply -f pvc-mysql.yaml
+kubectl apply -f config-mysql.yaml
+kubectl apply -f dep-mysql.yaml
+kubectl apply -f svc-mysql.yaml

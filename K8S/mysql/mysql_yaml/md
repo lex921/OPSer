@@ -1,0 +1,10 @@
+
+
+kubectl delete -f svc-mysql.yaml
+kubectl delete -f dep-mysql.yaml
+kubectl delete -f config-mysql.yaml
+kubectl delete -f pvc-mysql.yaml
+kubectl delete -f pv-mysql.yaml
+kubectl delete -f sc-mysql.yaml
+
+kubectl get pod,svc,pv,pvc,cm,sc -o wide 
