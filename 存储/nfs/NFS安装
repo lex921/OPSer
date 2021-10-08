@@ -1,0 +1,87 @@
+NFS安装
+######master节点安装nfs
+[root@master-1 mysql]# yum install rpcbind
+[root@master-1 mysql]# yum -y install nfs-utils
+######创建nfs目录
+[root@master-1 mysql]# mkdir /root/nfs_data
+[root@master-1 mysql]# chmod -R 777 /root/nfs_data
+######编辑export文件
+[root@master-1 mysql]# vim /etc/exports
+/root/nfs_data *(rw,no_root_squash,sync)
+######配置生效
+[root@master-1 mysql]# exportfs -r
+######查看生效
+[root@master-1 mysql]# exportfs
+/root/nfs_data  <world>
+
+######启动rpcbind、nfs服务
+[root@master-1 mysql]# systemctl restart rpcbind && systemctl enable rpcbind
+[root@master-1 mysql]# systemctl restart nfs && systemctl enable nfs
+Created symlink from /etc/systemd/system/multi-user.target.wants/nfs-server.service to /usr/lib/systemd/system/nfs-server.service.
+[root@master-1 mysql]# rpcinfo -p localhost
+   program vers proto   port  service
+    100000    4   tcp    111  portmapper
+    100000    3   tcp    111  portmapper
+    100000    2   tcp    111  portmapper
+    100000    4   udp    111  portmapper
+    100000    3   udp    111  portmapper
+    100000    2   udp    111  portmapper
+    100024    1   udp  52230  status
+    100024    1   tcp  37745  status
+    100005    1   udp  20048  mountd
+    100005    1   tcp  20048  mountd
+    100005    2   udp  20048  mountd
+    100005    2   tcp  20048  mountd
+    100005    3   udp  20048  mountd
+    100005    3   tcp  20048  mountd
+    100003    3   tcp   2049  nfs
+    100003    4   tcp   2049  nfs
+    100227    3   tcp   2049  nfs_acl
+    100003    3   udp   2049  nfs
+    100003    4   udp   2049  nfs
+    100227    3   udp   2049  nfs_acl
+    100021    1   udp  38776  nlockmgr
+    100021    3   udp  38776  nlockmgr
+    100021    4   udp  38776  nlockmgr
+    100021    1   tcp  35404  nlockmgr
+    100021    3   tcp  35404  nlockmgr
+    100021    4   tcp  35404  nlockmgr
+
+
+######showmount测试
+[root@master-1 mysql]# showmount -e 172.16.201.134
+Export list for 172.16.201.134:
+/root/nfs_data *
+
+[root@node-2 ~]# showmount -e 172.16.201.134
+Export list for 172.16.201.134:
+/root/nfs_data *
+
+[root@node-1 ~]# showmount -e 172.16.201.134
+Export list for 172.16.201.134:
+/root/nfs_data *
+
+
+######所有节点安装客户端
+[root@node-1 ~]# yum -y install nfs-utils;systemctl start nfs && systemctl enable nfs
+[root@node-2 ~]# yum -y install nfs-utils;systemctl start nfs && systemctl enable nfs
+
+
+######节点1挂上
+[root@node-1 ~]# mkdir /root/nfs_data
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/nfs_data  /root/nfs_data
+[root@node-1 nfs_data]# df -h|grep 172.16.201.134
+172.16.201.134:/root/nfs_data   50G  4.7G   46G  10% /root/nfs_data
+
+######节点2挂上
+[root@node-2 ~]# mkdir /root/nfs_data
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/nfs_data  /root/nfs_data
+[root@node-2 ~]# df -h|grep 172.16.201.134
+172.16.201.134:/root/nfs_data   50G  4.7G   46G  10% /root/nfs_data
+
+######节点测试写
+[root@master-1 nfs_data]#  echo "test" > /root/nfs_data/1
+[root@node-2 nfs_data]# cat 1
+test
+[root@node-1 nfs_data]# cat 1
+test
