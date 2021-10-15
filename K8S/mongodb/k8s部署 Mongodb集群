@@ -1,0 +1,872 @@
+k8s部署 Mongodb集群
+###一、NFS建立
+[root@master-1 ~]# mkdir mongodb-share/
+[root@master-1 ~]# chmod 777 mongodb-share/
+[root@master-1 ~]#  vim /etc/exports
+/root/nfs_data *(rw,no_root_squash,sync) 
+/root/web1 *(rw,no_root_squash,sync) 
+/root/redis-sentinel/0 *(rw,sync,no_subtree_check,no_root_squash) 
+/root/redis-sentinel/1 *(rw,sync,no_subtree_check,no_root_squash) 
+/root/redis-sentinel/2 *(rw,sync,no_subtree_check,no_root_squash) 
+/root/redis-cluster/pv1 *(rw,sync,no_subtree_check,no_root_squash) 
+/root/redis-cluster/pv2 *(rw,sync,no_subtree_check,no_root_squash) 
+/root/redis-cluster/pv3 *(rw,sync,no_subtree_check,no_root_squash) 
+/root/redis-cluster/pv4 *(rw,sync,no_subtree_check,no_root_squash) 
+/root/redis-cluster/pv5 *(rw,sync,no_subtree_check,no_root_squash) 
+/root/redis-cluster/pv6 *(rw,sync,no_subtree_check,no_root_squash) 
+/root/mongodb-share *(rw,sync,no_root_squash,no_all_squash) 
+
+[root@master-1 ~]# exportfs -r 
+[root@master-1 ~]# exportfs
+/root/nfs_data  <world>
+/root/web1      <world>
+/root/redis-sentinel/0 <world>
+/root/redis-sentinel/1 <world>
+/root/redis-sentinel/2 <world>
+/root/redis-cluster/pv1 <world>
+/root/redis-cluster/pv2 <world>
+/root/redis-cluster/pv3 <world>
+/root/redis-cluster/pv4 <world>
+/root/redis-cluster/pv5 <world>
+/root/redis-cluster/pv6 <world>
+/root/mongodb-share <world>
+
+节点mount上
+[root@node-1 ~]# mkdir mongodb-share
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/root/mongodb-share mongodb-share
+
+[root@node-2 ~]# mkdir mongodb-share
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/root/mongodb-share mongodb-share
+
+[root@node-1 ~]# df -h|grep mongodb
+172.16.201.134:/root/mongodb-share       50G  3.5G   47G   7% /root/mongodb-share
+[root@node-2 ~]#  df -h|grep mongodb
+172.16.201.134:/root/mongodb-share       50G  3.5G   47G   7% /root/mongodb-share
+
+###二、创建service-rbac
+1、创建serviceaccount
+[root@master-1 mongodb]# vim serviceaccount.yaml
+apiVersion: v1 
+kind: ServiceAccount 
+metadata: 
+  name: nfs-provisioner 
+[root@master-1 mongodb]# kubectl apply -f serviceaccount.yaml
+serviceaccount/nfs-provisioner created
+
+[root@master-1 mongodb]# kubectl get ServiceAccount -o wide           
+NAME              SECRETS   AGE
+default           1         22d
+nfs-provisioner   1         49s
+
+
+
+2、创建service-rbac
+[root@master-1 mongodb]# vim service-rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfs-client-provisioner
+  namespace: kube-system
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: nfs-client-provisioner-runner
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "update", "patch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: run-nfs-client-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: nfs-client-provisioner
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: nfs-client-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: leader-locking-nfs-client-provisioner
+  namespace: kube-system
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: leader-locking-nfs-client-provisioner
+  namespace: kube-system
+subjects:
+  - kind: ServiceAccount
+    name: nfs-client-provisioner
+    namespace: kube-system
+roleRef:
+  kind: Role
+  name: leader-locking-nfs-client-provisioner
+  apiGroup: rbac.authorization.k8s.io
+[root@master-1 mongodb]# 
+
+[root@master-1 mongodb]# kubectl apply -f  service-rbac.yaml
+serviceaccount/nfs-client-provisioner created
+clusterrole.rbac.authorization.k8s.io/nfs-client-provisioner-runner created
+clusterrolebinding.rbac.authorization.k8s.io/run-nfs-client-provisioner created
+role.rbac.authorization.k8s.io/leader-locking-nfs-client-provisioner created
+rolebinding.rbac.authorization.k8s.io/leader-locking-nfs-client-provisioner created
+
+[root@master-1 mongodb]# kubectl get RoleBinding -nkube-system  -o wide   
+NAME                                                ROLE                                                  AGE   USERS                                                   GROUPS                                                          SERVICEACCOUNTS
+kube-proxy                                          Role/kube-proxy                                       22d                                                           system:bootstrappers:kubeadm:default-node-token                 
+kubeadm:kubelet-config-1.19                         Role/kubeadm:kubelet-config-1.19                      22d                                                           system:nodes, system:bootstrappers:kubeadm:default-node-token   
+kubeadm:nodes-kubeadm-config                        Role/kubeadm:nodes-kubeadm-config                     22d                                                           system:bootstrappers:kubeadm:default-node-token, system:nodes   
+leader-locking-nfs-client-provisioner               Role/leader-locking-nfs-client-provisioner            83s                                                                                                                           kube-system/nfs-client-provisioner
+system::extension-apiserver-authentication-reader   Role/extension-apiserver-authentication-reader        22d   system:kube-controller-manager, system:kube-scheduler                                                                   
+system::leader-locking-kube-controller-manager      Role/system::leader-locking-kube-controller-manager   22d   system:kube-controller-manager                                                                                          kube-system/kube-controller-manager
+system::leader-locking-kube-scheduler               Role/system::leader-locking-kube-scheduler            22d   system:kube-scheduler                                                                                                   kube-system/kube-scheduler
+system:controller:bootstrap-signer                  Role/system:controller:bootstrap-signer               22d                                                                                                                           kube-system/bootstrap-signer
+system:controller:cloud-provider                    Role/system:controller:cloud-provider                 22d                                                                                                                           kube-system/cloud-provider
+system:controller:token-cleaner                     Role/system:controller:token-cleaner                  22d                                                                                                                           kube-system/token-cleaner
+[root@master-1 mongodb]# 
+
+
+
+3、创建nfs-provisioner-deploy
+[root@master-1 mongodb]# vim nfs-provisioner-deploy.yaml
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: mongodb-nfs
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: mongodb-nfs
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: mongodb-nfs
+    spec:
+      serviceAccount: nfs-client-provisioner
+      imagePullSecrets:
+      - name: regcred
+      containers:
+        - name: mongodb-nfs
+          image: registry.cn-hangzhou.aliyuncs.com/open-ali/nfs-client-provisioner:latest
+          volumeMounts:
+            - name: mongodb-nfs-root
+              mountPath: /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              value: asd
+            - name: NFS_SERVER
+              value: 172.16.201.134
+            - name: NFS_PATH
+              value: /root/mongodb-share
+      volumes:
+        - name: mongodb-nfs-root
+          nfs:
+            server: 172.16.201.134
+            path: /root/mongodb-share
+
+[root@master-1 mongodb]# kubectl apply -f nfs-provisioner-deploy.yaml
+deployment.apps/mongodb-nfs created
+
+[root@master-1 mongodb]#  kubectl get pod -l app=mongodb-nfs  -n kube-system 
+NAME                           READY   STATUS    RESTARTS   AGE
+mongodb-nfs-5f6fd65ff9-dm7wv   1/1     Running   0          56s
+
+4、创建storageclass
+[root@master-1 mongodb]# vim storageclass.yaml
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: mongodb-nfs
+provisioner: asd
+[root@master-1 mongodb]# kubectl apply -f storageclass.yaml
+storageclass.storage.k8s.io/mongodb-nfs created
+
+[root@master-1 mongodb]# kubectl get storageclasses
+NAME          PROVISIONER   RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+mongodb-nfs   asd           Delete          Immediate           false                  21s
+
+到此NFS StorageClass存储类服务创建成功!!！
+
+###三、部署Mongodb
+####1、创建mongo-service
+[root@master-1 mongodb]# vim mongo-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+  labels:
+    app: mongo
+spec:
+  ports:
+  - name: mongo
+    port: 27017
+    targetPort: 27017
+  clusterIP: None
+  selector:
+    role: mongo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-service
+  labels:
+    app: mongo
+spec:
+  ports:
+  - name: mongo-http
+    port: 27017
+    targetPort: 27017
+    nodePort: 27017
+  selector:
+    role: mongo
+  type: NodePort
+
+
+[root@master-1 mongodb]# kubectl apply -f mongo-service.yaml                           
+service/mongo created
+service/mongo-service created
+
+[root@master-1 mongodb]# kubectl get svc
+NAME            TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)                          AGE
+kubernetes      ClusterIP   10.1.0.1      <none>        443/TCP                          22d
+mongo           ClusterIP   None          <none>        27017/TCP                        81s
+mongo-service   NodePort    10.1.98.245   <none>        27017:27017/TCP                  81s
+redis-cluster   NodePort    10.1.231.82   <none>        6379:31000/TCP,16379:30701/TCP   6d7h
+
+
+####2、创建mongo-statefulset
+[root@master-1 mongodb]# vim mongo-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongo
+spec:
+  serviceName: mongo
+  replicas: 3
+  selector:
+    matchLabels:
+      role: mongo
+      environment: test
+  template:
+    metadata:
+      labels:
+        app: mongo
+        role: mongo
+        environment: test
+    spec:
+      containers:
+      - name: mongod-container
+        image: mongo:3.4
+        command:
+          - mongod
+          - "--bind_ip"
+          - "0.0.0.0"
+          - "--replSet"
+          - "rs0"
+        resources:
+          requests:
+            cpu: 0.2
+            memory: 200Mi
+        ports:
+        - containerPort: 27017
+        volumeMounts:
+        - name: mongodb-persistent-storage-claim
+          mountPath: /data/db
+      - name: mongo-sidecar
+        image: cvallance/mongo-k8s-sidecar
+        env:
+          - name: MONGO_SIDECAR_POD_LABELS
+            value: "role=mongo,environment=test"
+      volumes:
+      - name: secrets-volume
+        secret:
+          secretName: shared-bootstrap-data
+          defaultMode: 256
+  volumeClaimTemplates:
+  - metadata:
+      name: mongodb-persistent-storage-claim
+      annotations:
+        volume.beta.kubernetes.io/storage-class: mongodb-nfs
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+[root@master-1 mongodb]# 
+
+[root@master-1 mongodb]# kubectl apply -f mongo-statefulset.yaml
+statefulset.apps/mongo created
+[root@master-1 mongodb]# kubectl delete -f mongo-statefulset.yaml
+
+
+[root@master-1 mongodb]# kubectl get StatefulSet  -o wide            
+NAME            READY   AGE    CONTAINERS         IMAGES
+mongo           0/3     2m1s   mongod-container   mongo:3.4
+redis-cluster   6/6     14d    redis              redis:6.2-alpine
+
+
+[root@master-1 mongodb]#  kubectl get pod --watch  
+NAME              READY   STATUS              RESTARTS   AGE
+mongo-0           0/2     ContainerCreating   0          4s
+redis-cluster-0   1/1     Running             0          14d
+redis-cluster-1   1/1     Running             0          6d6h
+redis-cluster-2   1/1     Running             0          14d
+redis-cluster-3   1/1     Running             0          14d
+redis-cluster-4   1/1     Running             0          14d
+redis-cluster-5   1/1     Running             0          14d
+mongo-0           2/2     Running             0          19s
+mongo-1           0/2     Pending             0          0s
+mongo-1           0/2     Pending             0          0s
+mongo-1           0/2     ContainerCreating   0          0s
+
+[root@master-1 mongodb]# kubectl get pod  -o wide 
+NAME              READY   STATUS    RESTARTS   AGE    IP            NODE     NOMINATED NODE   READINESS GATES
+mongo-0           2/2     Running   0          26s    10.244.2.61   node-2   <none>           <none>
+mongo-1           2/2     Running   0          50s    10.244.1.56   node-1   <none>           <none>
+mongo-2           2/2     Running   0          72s    10.244.1.55   node-1   <none>           <none>
+redis-cluster-0   1/1     Running   0          14d    10.244.2.52   node-2   <none>           <none>
+redis-cluster-1   1/1     Running   0          6d6h   10.244.1.50   node-1   <none>           <none>
+redis-cluster-2   1/1     Running   0          14d    10.244.2.53   node-2   <none>           <none>
+redis-cluster-3   1/1     Running   0          14d    10.244.1.48   node-1   <none>           <none>
+redis-cluster-4   1/1     Running   0          14d    10.244.2.54   node-2   <none>           <none>
+redis-cluster-5   1/1     Running   0          14d    10.244.1.49   node-1   <none>           <none>
+
+加完app=mongo，舒服一些
+[root@master-1 mongodb]# kubectl get pod,svc -l app=mongo -o wide
+NAME          READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+pod/mongo-0   2/2     Running   0          96s     10.244.2.61   node-2   <none>           <none>
+pod/mongo-1   2/2     Running   0          2m      10.244.1.56   node-1   <none>           <none>
+pod/mongo-2   2/2     Running   0          2m22s   10.244.1.55   node-1   <none>           <none>
+
+NAME                    TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)           AGE   SELECTOR
+service/mongo           ClusterIP   None          <none>        27017/TCP         57m   role=mongo
+service/mongo-service   NodePort    10.1.98.245   <none>        27017:27017/TCP   57m   role=mongo
+
+
+
+[root@node-1 mongodb-share]# ls
+default-mongodb-persistent-storage-claim-mongo-0-pvc-590e3a5f-39af-4cb3-a005-0570264787d1
+default-mongodb-persistent-storage-claim-mongo-1-pvc-a815ab9a-c2fe-4036-b7fc-4cac32dc3ad0
+default-mongodb-persistent-storage-claim-mongo-2-pvc-00b6d3e1-5c2e-4a4d-8e0d-affad057464d
+
+
+######验证http访问，172.16.201.134-136为我的nodeIP地址，27017为nodeport自动生成的端口号；
+[root@master-1 mongodb]# curl http://172.16.201.134:27017
+It looks like you are trying to access MongoDB over HTTP on the native driver port.
+[root@master-1 mongodb]# curl http://172.16.201.135:27017
+It looks like you are trying to access MongoDB over HTTP on the native driver port.
+[root@master-1 mongodb]# curl http://172.16.201.136:27017
+It looks like you are trying to access MongoDB over HTTP on the native driver port.
+######集群访问正常；
+
+
+######
+[root@master-1 mongodb]# kubectl exec -it mongo-0 -- mongo
+Defaulting container name to mongod-container.
+Use 'kubectl describe pod/mongo-0 -n default' to see all of the containers in this pod.
+MongoDB shell version v3.4.24
+connecting to: mongodb://127.0.0.1:27017
+MongoDB server version: 3.4.24
+Welcome to the MongoDB shell.
+For interactive help, type "help".
+For more comprehensive documentation, see
+        http://docs.mongodb.org/
+Questions? Try the support group
+        http://groups.google.com/group/mongodb-user
+Server has startup warnings: 
+2021-10-14T09:56:05.089+0000 I CONTROL  [initandlisten] 
+2021-10-14T09:56:05.089+0000 I CONTROL  [initandlisten] ** WARNING: Access control is not enabled for the database.
+2021-10-14T09:56:05.089+0000 I CONTROL  [initandlisten] **          Read and write access to data and configuration is unrestricted.
+2021-10-14T09:56:05.089+0000 I CONTROL  [initandlisten] ** WARNING: You are running this process as the root user, which is not recommended.
+2021-10-14T09:56:05.089+0000 I CONTROL  [initandlisten] 
+2021-10-14T09:56:05.089+0000 I CONTROL  [initandlisten] 
+2021-10-14T09:56:05.090+0000 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/defrag is 'always'.
+2021-10-14T09:56:05.090+0000 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2021-10-14T09:56:05.090+0000 I CONTROL  [initandlisten] 
+> rs.status()
+{
+        "info" : "run rs.initiate(...) if not yet done for the set",
+        "ok" : 0,
+        "errmsg" : "no replset config has been received",
+        "code" : 94,
+        "codeName" : "NotYetInitialized"
+}
+> 
+
+######未设置集群
+
+
+####3、副本集群初始化
+
+[root@master-1 mongodb]# kubectl get pod --all-namespaces
+NAMESPACE        NAME                               READY   STATUS    RESTARTS   AGE
+default          busybox                            1/1     Running   0          70s
+default          mongo-0                            2/2     Running   0          12m
+default          mongo-1                            2/2     Running   0          12m
+default          mongo-2                            2/2     Running   0          12m
+default          redis-cluster-0                    1/1     Running   0          14d
+default          redis-cluster-1                    1/1     Running   0          6d6h
+default          redis-cluster-2                    1/1     Running   0          14d
+default          redis-cluster-3                    1/1     Running   0          14d
+default          redis-cluster-4                    1/1     Running   0          14d
+default          redis-cluster-5                    1/1     Running   0          14d
+ingress-nginx    ingress-nginx-controller-s7x2z     1/1     Running   1          20d
+ingress-nginx    ingress-nginx-controller-xf68j     1/1     Running   2          20d
+kube-system      coredns-6d56c8448f-9dr27           1/1     Running   2          15d
+kube-system      coredns-6d56c8448f-mfn9z           1/1     Running   2          15d
+kube-system      etcd-master-1                      1/1     Running   4          22d
+kube-system      kube-apiserver-master-1            1/1     Running   0          68m
+kube-system      kube-controller-manager-master-1   1/1     Running   11         22d
+kube-system      kube-flannel-ds-mmhsm              1/1     Running   1          22d
+kube-system      kube-flannel-ds-rz2xj              1/1     Running   4          22d
+kube-system      kube-flannel-ds-ts9fm              1/1     Running   1          22d
+kube-system      kube-proxy-bkck2                   1/1     Running   1          22d
+kube-system      kube-proxy-c6fdx                   1/1     Running   4          22d
+kube-system      kube-proxy-phjdh                   1/1     Running   1          22d
+kube-system      kube-scheduler-master-1            1/1     Running   12         22d
+kube-system      mongodb-nfs-5f6fd65ff9-dm7wv       1/1     Running   0          82m
+public-service   redis-sentinel-master-ss-0         1/1     Running   0          14d
+public-service   redis-sentinel-slave-ss-0          1/1     Running   0          14d
+public-service   redis-sentinel-slave-ss-1          1/1     Running   0          14d
+test-ns          httpd01-699c8fcff4-wmwkv           1/1     Running   0          15d
+test-ns          tomcat01-95fc6cd5d-jg2fm           1/1     Running   0          15d
+[root@master-1 mongodb]# kubectl delete pod busybox
+pod "busybox" deleted
+[root@master-1 mongodb]# 
+
+
+[root@master-1 mongodb]# kubectl get pod,svc -l app=mongo -o wide
+NAME          READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+pod/mongo-0   2/2     Running   0          9m43s   10.244.2.68   node-2   <none>           <none>
+pod/mongo-1   2/2     Running   0          9m24s   10.244.1.62   node-1   <none>           <none>
+pod/mongo-2   2/2     Running   0          9m17s   10.244.2.69   node-2   <none>           <none>
+
+NAME                    TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)           AGE    SELECTOR
+service/mongo           ClusterIP   None          <none>        27017/TCP         128m   role=mongo
+service/mongo-service   NodePort    10.1.98.245   <none>        27017:27017/TCP   128m   role=mongo
+
+初始化
+[root@master-1 mongodb]# kubectl exec -it mongo-0 -- /bin/bash
+Defaulting container name to mongod-container.
+Use 'kubectl describe pod/mongo-0 -n default' to see all of the containers in this pod.
+root@mongo-0:/#     
+root@mongo-0:/# 
+root@mongo-0:/# mongo
+> config = {_id:"rs0", members:[
+... ... {_id:0,host:"10.244.2.68:27017", priority:1}
+... ... ]
+... ... };
+{
+        "_id" : "rs0",
+        "members" : [
+                {
+                        "_id" : 0,
+                        "host" : "10.244.2.68:27017",
+                        "priority" : 1
+                }
+        ]
+}
+> rs.initiate(config);
+{ "ok" : 1 }
+rs0:OTHER> 
+rs0:PRIMARY> 
+rs0:PRIMARY> 
+
+
+rs.remove("mongo-0.kube-dns.kube-system.svc.cluster.local:27017")
+rs.remove("mongo-1.kube-dns.kube-system.svc.cluster.local:27017")
+rs.remove("mongo-2.kube-dns.kube-system.svc.cluster.local:27017")
+
+rs0:PRIMARY> rs.status() 
+{
+        "set" : "rs0",
+        "date" : ISODate("2021-10-14T11:11:07.098Z"),
+        "myState" : 1,
+        "term" : NumberLong(1),
+        "syncingTo" : "",
+        "syncSourceHost" : "",
+        "syncSourceId" : -1,
+        "heartbeatIntervalMillis" : NumberLong(2000),
+        "optimes" : {
+                "lastCommittedOpTime" : {
+                        "ts" : Timestamp(1634209862, 1),
+                        "t" : NumberLong(1)
+                },
+                "appliedOpTime" : {
+                        "ts" : Timestamp(1634209862, 1),
+                        "t" : NumberLong(1)
+                },
+                "durableOpTime" : {
+                        "ts" : Timestamp(1634209862, 1),
+                        "t" : NumberLong(1)
+                }
+        },
+        "members" : [
+                {
+                        "_id" : 0,
+                        "name" : "10.244.2.68:27017",
+                        "health" : 1,
+                        "state" : 1,
+                        "stateStr" : "PRIMARY",
+                        "uptime" : 737,
+                        "optime" : {
+                                "ts" : Timestamp(1634209862, 1),
+                                "t" : NumberLong(1)
+                        },
+                        "optimeDate" : ISODate("2021-10-14T11:11:02Z"),
+                        "syncingTo" : "",
+                        "syncSourceHost" : "",
+                        "syncSourceId" : -1,
+                        "infoMessage" : "could not find member to sync from",
+                        "electionTime" : Timestamp(1634209780, 2),
+                        "electionDate" : ISODate("2021-10-14T11:09:40Z"),
+                        "configVersion" : 1,
+                        "self" : true,
+                        "lastHeartbeatMessage" : ""
+                }
+        ],
+        "ok" : 1
+}
+rs0:PRIMARY> 
+
+
+####4、添加节点：
+rs0:PRIMARY> rs.add("10.244.1.62:27017")
+{ "ok" : 1 }
+rs0:PRIMARY> rs.add("10.244.2.69:27017")
+{ "ok" : 1 }
+
+在主节点查看各个从节点状态：
+rs0:PRIMARY> db.printSlaveReplicationInfo()
+source: 10.244.1.62:27017
+        syncedTo: Thu Oct 14 2021 11:14:05 GMT+0000 (UTC)
+        3 secs (0 hrs) behind the primary 
+source: 10.244.2.69:27017
+        syncedTo: Thu Jan 01 1970 00:00:00 GMT+0000 (UTC)
+        1634210048 secs (453947.24 hrs) behind the primary 
+rs0:PRIMARY> 
+
+rs0:PRIMARY> rs.status() 
+{
+        "set" : "rs0",
+        "date" : ISODate("2021-10-14T11:14:27.632Z"),
+        "myState" : 1,
+        "term" : NumberLong(1),
+        "syncingTo" : "",
+        "syncSourceHost" : "",
+        "syncSourceId" : -1,
+        "heartbeatIntervalMillis" : NumberLong(2000),
+        "optimes" : {
+                "lastCommittedOpTime" : {
+                        "ts" : Timestamp(1634210062, 1),
+                        "t" : NumberLong(1)
+                },
+                "appliedOpTime" : {
+                        "ts" : Timestamp(1634210062, 1),
+                        "t" : NumberLong(1)
+                },
+                "durableOpTime" : {
+                        "ts" : Timestamp(1634210062, 1),
+                        "t" : NumberLong(1)
+                }
+        },
+        "members" : [
+                {
+                        "_id" : 0,
+                        "name" : "10.244.2.68:27017",
+                        "health" : 1,
+                        "state" : 1,
+                        "stateStr" : "PRIMARY",
+                        "uptime" : 937,
+                        "optime" : {
+                                "ts" : Timestamp(1634210062, 1),
+                                "t" : NumberLong(1)
+                        },
+                        "optimeDate" : ISODate("2021-10-14T11:14:22Z"),
+                        "syncingTo" : "",
+                        "syncSourceHost" : "",
+                        "syncSourceId" : -1,
+                        "infoMessage" : "",
+                        "electionTime" : Timestamp(1634209780, 2),
+                        "electionDate" : ISODate("2021-10-14T11:09:40Z"),
+                        "configVersion" : 3,
+                        "self" : true,
+                        "lastHeartbeatMessage" : ""
+                },
+                {
+                        "_id" : 1,
+                        "name" : "10.244.1.62:27017",
+                        "health" : 1,
+                        "state" : 2,
+                        "stateStr" : "SECONDARY",
+                        "uptime" : 21,
+                        "optime" : {
+                                "ts" : Timestamp(1634210062, 1),
+                                "t" : NumberLong(1)
+                        },
+                        "optimeDurable" : {
+                                "ts" : Timestamp(1634210062, 1),
+                                "t" : NumberLong(1)
+                        },
+                        "optimeDate" : ISODate("2021-10-14T11:14:22Z"),
+                        "optimeDurableDate" : ISODate("2021-10-14T11:14:22Z"),
+                        "lastHeartbeat" : ISODate("2021-10-14T11:14:26.664Z"),
+                        "lastHeartbeatRecv" : ISODate("2021-10-14T11:14:27.629Z"),
+                        "pingMs" : NumberLong(13),
+                        "lastHeartbeatMessage" : "",
+                        "syncingTo" : "10.244.2.68:27017",
+                        "syncSourceHost" : "10.244.2.68:27017",
+                        "syncSourceId" : 0,
+                        "infoMessage" : "",
+                        "configVersion" : 3
+                },
+                {
+                        "_id" : 2,
+                        "name" : "10.244.2.69:27017",
+                        "health" : 1,
+                        "state" : 2,
+                        "stateStr" : "SECONDARY",
+                        "uptime" : 19,
+                        "optime" : {
+                                "ts" : Timestamp(1634210062, 1),
+                                "t" : NumberLong(1)
+                        },
+                        "optimeDurable" : {
+                                "ts" : Timestamp(1634210062, 1),
+                                "t" : NumberLong(1)
+                        },
+                        "optimeDate" : ISODate("2021-10-14T11:14:22Z"),
+                        "optimeDurableDate" : ISODate("2021-10-14T11:14:22Z"),
+                        "lastHeartbeat" : ISODate("2021-10-14T11:14:26.579Z"),
+                        "lastHeartbeatRecv" : ISODate("2021-10-14T11:14:24.204Z"),
+                        "pingMs" : NumberLong(0),
+                        "lastHeartbeatMessage" : "",
+                        "syncingTo" : "10.244.2.68:27017",
+                        "syncSourceHost" : "10.244.2.68:27017",
+                        "syncSourceId" : 0,
+                        "infoMessage" : "",
+                        "configVersion" : 3
+                }
+        ],
+        "ok" : 1
+}
+rs0:PRIMARY> 
+
+
+
+可以查看集群详细运行状态，在主节点执行：
+rs0:PRIMARY> rs.conf()
+{
+        "_id" : "rs0",
+        "version" : 3,
+        "protocolVersion" : NumberLong(1),
+        "members" : [
+                {
+                        "_id" : 0,
+                        "host" : "10.244.2.68:27017",
+                        "arbiterOnly" : false,
+                        "buildIndexes" : true,
+                        "hidden" : false,
+                        "priority" : 1,
+                        "tags" : {
+
+                        },
+                        "slaveDelay" : NumberLong(0),
+                        "votes" : 1
+                },
+                {
+                        "_id" : 1,
+                        "host" : "10.244.1.62:27017",
+                        "arbiterOnly" : false,
+                        "buildIndexes" : true,
+                        "hidden" : false,
+                        "priority" : 1,
+                        "tags" : {
+
+                        },
+                        "slaveDelay" : NumberLong(0),
+                        "votes" : 1
+                },
+                {
+                        "_id" : 2,
+                        "host" : "10.244.2.69:27017",
+                        "arbiterOnly" : false,
+                        "buildIndexes" : true,
+                        "hidden" : false,
+                        "priority" : 1,
+                        "tags" : {
+
+                        },
+                        "slaveDelay" : NumberLong(0),
+                        "votes" : 1
+                }
+        ],
+        "settings" : {
+                "chainingAllowed" : true,
+                "heartbeatIntervalMillis" : 2000,
+                "heartbeatTimeoutSecs" : 10,
+                "electionTimeoutMillis" : 10000,
+                "catchUpTimeoutMillis" : 60000,
+                "getLastErrorModes" : {
+
+                },
+                "getLastErrorDefaults" : {
+                        "w" : 1,
+                        "wtimeout" : 0
+                },
+                "replicaSetId" : ObjectId("61680ff4cfb3d35f05c12953")
+        }
+}
+rs0:PRIMARY> 
+
+删除节点：
+rs0:PRIMARY> rs.remove("10.244.2.69:27017")
+{ "ok" : 1 }
+rs0:PRIMARY> db.printSlaveReplicationInfo()
+source: 10.244.1.62:27017
+        syncedTo: Thu Oct 14 2021 11:16:45 GMT+0000 (UTC)
+        0 secs (0 hrs) behind the primary 
+rs0:PRIMARY> 
+
+再次加回来：
+rs0:PRIMARY> rs.add("10.244.2.69:27017")
+{ "ok" : 1 }
+查看节点状态：
+rs0:PRIMARY> db.printSlaveReplicationInfo()
+source: 10.244.1.62:27017
+        syncedTo: Thu Oct 14 2021 11:17:11 GMT+0000 (UTC)
+        0 secs (0 hrs) behind the primary 
+source: 10.244.2.69:27017
+        syncedTo: Thu Jan 01 1970 00:00:00 GMT+0000 (UTC)
+        1634210231 secs (453947.29 hrs) behind the primary 
+rs0:PRIMARY> 
+
+
+####5、添加数据测试
+主节点操作：
+rs0:PRIMARY> use testdb
+switched to db testdb
+rs0:PRIMARY> db.test1231.insert({"name":"test repl"});
+WriteResult({ "nInserted" : 1 })
+rs0:PRIMARY> rs.slaveOk();
+rs0:PRIMARY> 
+
+
+node1操作：
+[root@master-1 mongodb]# kubectl exec -it mongo-1 -- /bin/bash
+Defaulting container name to mongod-container.
+Use 'kubectl describe pod/mongo-1 -n default' to see all of the containers in this pod.
+root@mongo-1:/# mongo
+MongoDB shell version v3.4.24
+connecting to: mongodb://127.0.0.1:27017
+MongoDB server version: 3.4.24
+Welcome to the MongoDB shell.
+For interactive help, type "help".
+For more comprehensive documentation, see
+        http://docs.mongodb.org/
+Questions? Try the support group
+        http://groups.google.com/group/mongodb-user
+Server has startup warnings: 
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] 
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] ** WARNING: Access control is not enabled for the database.
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] **          Read and write access to data and configuration is unrestricted.
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] ** WARNING: You are running this process as the root user, which is not recommended.
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] 
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] 
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/enabled is 'always'.
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] 
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] ** WARNING: /sys/kernel/mm/transparent_hugepage/defrag is 'always'.
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] **        We suggest setting it to 'never'
+2021-10-14T10:59:19.770+0000 I CONTROL  [initandlisten] 
+rs0:SECONDARY> 
+rs0:SECONDARY> 
+rs0:SECONDARY> rs.slaveOk();
+rs0:SECONDARY> use testdb
+switched to db testdb
+rs0:SECONDARY> show collections;
+test1231
+rs0:SECONDARY> db.test1231.find();
+{ "_id" : ObjectId("6168122f3438c0f4171d6185"), "name" : "test repl" }
+rs0:SECONDARY> 
+
+主节点插入数据都在。
+
+
+
+####6、replication set的一些设置
+设置优先级，是否隐藏及延时
+cfg = rs.conf()
+cfg.members[0].priority = 0
+cfg.members[0].hidden = true
+cfg.members[0].slaveDelay = 3600
+rs.reconfig(cfg)
+设置选举权：
+cfg = rs.conf()
+cfg.members[3].votes = 0
+cfg.members[4].votes = 0
+cfg.members[5].votes = 0
+rs.reconfig(cfg)
+
+
+####7、Mongo集群进行扩容
+[root@master-1 mongodb]#  kubectl scale statefulset mongo --replicas=4
+statefulset.apps/mongo scaled
+
+[root@master-1 mongodb]#  kubectl get pod -l app=mongo -o wide 
+NAME      READY   STATUS    RESTARTS   AGE   IP            NODE     NOMINATED NODE   READINESS GATES
+mongo-0   2/2     Running   0          29m   10.244.2.68   node-2   <none>           <none>
+mongo-1   2/2     Running   0          29m   10.244.1.62   node-1   <none>           <none>
+mongo-2   2/2     Running   0          29m   10.244.2.69   node-2   <none>           <none>
+mongo-3   2/2     Running   0          22s   10.244.1.63   node-1   <none>           <none>
+
+mongo内部添加节点略
+
+
+[root@master-1 mongodb]# kubectl scale statefulset mongo --replicas=6
+statefulset.apps/mongo scaled
+[root@master-1 mongodb]# kubectl get pod  -o wide 
+NAME              READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+mongo-0           2/2     Running   0          34m     10.244.2.68   node-2   <none>           <none>
+mongo-1           2/2     Running   0          34m     10.244.1.62   node-1   <none>           <none>
+mongo-2           2/2     Running   0          34m     10.244.2.69   node-2   <none>           <none>
+mongo-3           2/2     Running   0          4m50s   10.244.1.63   node-1   <none>           <none>
+mongo-4           2/2     Running   0          55s     10.244.2.70   node-2   <none>           <none>
+mongo-5           2/2     Running   0          33s     10.244.1.64   node-1   <none>           <none>
+redis-cluster-0   1/1     Running   0          14d     10.244.2.52   node-2   <none>           <none>
+redis-cluster-1   1/1     Running   0          6d8h    10.244.1.50   node-1   <none>           <none>
+redis-cluster-2   1/1     Running   0          14d     10.244.2.53   node-2   <none>           <none>
+redis-cluster-3   1/1     Running   0          14d     10.244.1.48   node-1   <none>           <none>
+redis-cluster-4   1/1     Running   0          14d     10.244.2.54   node-2   <none>           <none>
+redis-cluster-5   1/1     Running   0          14d     10.244.1.49   node-1   <none>           <none>
+
+
+
+####8、清理：
+kubectl delete statefulset mongo
+kubectl delete svc mongo
+kubectl delete pvc -l role=mongo
