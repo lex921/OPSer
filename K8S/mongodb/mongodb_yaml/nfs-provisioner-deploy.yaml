@@ -1,0 +1,38 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: mongodb-nfs
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: mongodb-nfs
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: mongodb-nfs
+    spec:
+      serviceAccount: nfs-client-provisioner
+      imagePullSecrets:
+      - name: regcred
+      containers:
+        - name: mongodb-nfs
+          image: registry.cn-hangzhou.aliyuncs.com/open-ali/nfs-client-provisioner:latest
+          volumeMounts:
+            - name: mongodb-nfs-root
+              mountPath: /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              value: asd
+            - name: NFS_SERVER
+              value: 172.16.201.134
+            - name: NFS_PATH
+              value: /root/mongodb-share
+      volumes:
+        - name: mongodb-nfs-root
+          nfs:
+            server: 172.16.201.134
+            path: /root/mongodb-share
