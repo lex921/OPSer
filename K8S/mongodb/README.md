@@ -10,4 +10,4 @@
 
 ### MongoDB 副本集（Replica Set）和分片技术（Shard）
 
-<img src="/图库/mongodb架构图2.png">
+<img src="/图库/mongodb架构图2.jpeg">
