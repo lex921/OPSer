@@ -1,0 +1,11 @@
+kubectl apply -f pv.yaml
+kubectl get pv
+
+kubectl apply -f cm.yaml
+kubectl get cm
+
+kubectl apply -f service.yaml
+kubectl get svc
+
+kubectl apply -f sfs.yaml
+kubectl get pod|grep mysql

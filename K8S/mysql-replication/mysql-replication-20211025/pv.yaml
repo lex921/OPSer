@@ -1,0 +1,65 @@
+  apiVersion: v1
+  kind: PersistentVolume
+  metadata:
+    name: pv-a
+  spec:
+    capacity:
+      storage: 1Gi
+    accessModes: 
+    - ReadWriteOnce
+    - ReadOnlyMany
+    persistentVolumeReclaimPolicy: Recycle # 当声明被释放，空间将回收再利用
+    nfs:
+      server: 172.16.201.134
+      path: /net/mysql-0
+
+---
+
+  apiVersion: v1
+  kind: PersistentVolume
+  metadata:
+    name: pv-b
+  spec:
+    capacity:
+      storage: 1Gi
+    accessModes: 
+    - ReadWriteOnce
+    - ReadOnlyMany
+    persistentVolumeReclaimPolicy: Recycle # 当声明被释放，空间将回收再利用
+    nfs:
+      server: 172.16.201.134
+      path: /net/mysql-1
+
+---
+
+  apiVersion: v1
+  kind: PersistentVolume
+  metadata:
+    name: pv-c
+  spec:
+    capacity:
+      storage: 1Gi
+    accessModes: 
+    - ReadWriteOnce
+    - ReadOnlyMany
+    persistentVolumeReclaimPolicy: Recycle # 当声明被释放，空间将回收再利用
+    nfs:
+      server: 172.16.201.134
+      path: /net/mysql-2
+
+---
+
+  apiVersion: v1
+  kind: PersistentVolume
+  metadata:
+    name: pv-d
+  spec:
+    capacity:
+      storage: 1Gi
+    accessModes:
+    - ReadWriteOnce
+    - ReadOnlyMany
+    persistentVolumeReclaimPolicy: Recycle # 当声明被释放，空间将回收再利用
+    nfs:
+      server: 172.16.201.134
+      path: /net/mysql-3

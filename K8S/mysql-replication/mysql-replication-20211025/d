@@ -1,0 +1,8 @@
+
+kubectl delete -f sfs.yaml
+kubectl delete -f service.yaml
+kubectl delete -f cm.yaml
+kubectl delete -f pv.yaml
+
+echo "kubectl get all|grep mysql"
+kubectl get all|grep mysql
