@@ -1,0 +1,1499 @@
+##(九)、k8s部署MySQL 主从同步：
+参考：
+https://blog.csdn.net/qq_38900565/article/details/102486100
+https://www.jianshu.com/p/a5e184188ccd
+
+
+###1.前提：起码得有个已经可以部署简单pod的k8s单机或集群
+PS: 本文使用静态存储卷实现，非使用存储类
+###2.制作拉取gcr.io镜像源脚本并拉取镜像
+[root@master-1 k8s-mysql-replication]# ls
+pull-google.com.sh
+[root@master-1 k8s-mysql-replication]# ./pull-google.com.sh gcr.io/google-samples/xtrabackup:1.0
+gcr.io/google-samples/xtrabackup:1.0
+docker pull anjia0532/google-samples.xtrabackup:1.0
+1.0: Pulling from anjia0532/google-samples.xtrabackup
+Digest: sha256:39f106eb400e18dcb4bded651a7ab308b39c305578ce228ae35f3c76bc715510
+Status: Downloaded newer image for anjia0532/google-samples.xtrabackup:1.0
+docker.io/anjia0532/google-samples.xtrabackup:1.0
+docker tag anjia0532/google-samples.xtrabackup:1.0 gcr.io/google-samples/xtrabackup:1.0
+[root@master-1 k8s-mysql-replication]# 
+
+
+
+###3.准备NFS服务,查看NFS服务器IP为172.16.201.134，准备三个持久化磁盘
+[root@master-1 k8s-mysql-replication]# mkdir -p /net/mysql-0 /net/mysql-1 /net/mysql-2
+
+[root@master-1 k8s-mysql-replication]# ifconfig |grep 172
+        inet 172.17.0.1  netmask 255.255.0.0  broadcast 172.17.255.255
+        inet 172.16.201.134  netmask 255.255.255.0  broadcast 172.16.2
+
+[root@master-1 mysql-kubernetes]# echo '/net/mysql-0 *(rw,no_root_squash)' >> /etc/exports
+[root@master-1 mysql-kubernetes]# echo '/net/mysql-1 *(rw,no_root_squash)' >> /etc/exports
+[root@master-1 mysql-kubernetes]# echo '/net/mysql-2 *(rw,no_root_squash)' >> /etc/exports
+[root@master-1 mysql-kubernetes]# systemctl restart nfs-server
+
+[root@master-1 ~]# showmount -e 172.16.201.134
+Export list for 172.16.201.134:
+/net/mysql-2                *
+/net/mysql-1                *
+/net/mysql-0                *
+/root/mysql-replicationdata *
+/root/mongodb-share         *
+/root/redis-cluster/pv6     *
+/root/redis-cluster/pv5     *
+/root/redis-cluster/pv4     *
+/root/redis-cluster/pv3     *
+/root/redis-cluster/pv2     *
+/root/redis-cluster/pv1     *
+/root/redis-sentinel/2      *
+/root/redis-sentinel/1      *
+/root/redis-sentinel/0      *
+/root/web1                  *
+/root/nfs_data              *
+[root@master-1 ~]# 
+
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/net/mysql-0 /net/mysql-0 
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/net/mysql-1 /net/mysql-1
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/net/mysql-2 /net/mysql-2
+[root@node-1 ~]# df -h|grep 134|grep mysql                              
+172.16.201.134:/net/mysql-0                                                                                                    50G  6.6G   44G  14% /net/mysql-0
+172.16.201.134:/net/mysql-1                                                                                                    50G  6.6G   44G  14% /net/mysql-1
+172.16.201.134:/net/mysql-2                                                                                                    50G  6.6G   44G  14% /net/mysql-2
+[root@node-1 ~]#
+
+[root@node-2 ~]#  mount -t nfs 172.16.201.134:/net/mysql-0 /net/mysql-0 
+[root@node-2 ~]#  mount -t nfs 172.16.201.134:/net/mysql-1 /net/mysql-1
+[root@node-2 ~]#  mount -t nfs 172.16.201.134:/net/mysql-2 /net/mysql-2
+[root@node-2 ~]# df -h|grep 134|grep mysql        
+172.16.201.134:/net/mysql-0                                                                                                    50G  6.6G   44G  14% /net/mysql-0
+172.16.201.134:/net/mysql-1                                                                                                    50G  6.6G   44G  14% /net/mysql-1
+172.16.201.134:/net/mysql-2                                                                                                    50G  6.6G   44G  14% /net/mysql-2
+[root@node-2 ~]# 
+
+
+###4.创建三个持久卷
+ [root@master-1 k8s-mysql-replication]# cat pv.yaml 
+   apiVersion: v1
+   kind: PersistentVolume
+   metadata:
+     name: pv-a
+   spec:
+     capacity:
+       storage: 1Gi
+     accessModes: 
+     - ReadWriteOnce
+     - ReadOnlyMany
+     persistentVolumeReclaimPolicy: Recycle # 当声明被释放，空间将回收再利用
+     nfs:
+       server: 172.16.201.134
+       path: /net/mysql-0
+
+ ---
+
+   apiVersion: v1
+   kind: PersistentVolume
+   metadata:
+     name: pv-b
+   spec:
+     capacity:
+       storage: 1Gi
+     accessModes: 
+     - ReadWriteOnce
+     - ReadOnlyMany
+     persistentVolumeReclaimPolicy: Recycle # 当声明被释放，空间将回收再利用
+     nfs:
+       server: 172.16.201.134
+       path: /net/mysql-1
+
+ ---
+
+   apiVersion: v1
+   kind: PersistentVolume
+   metadata:
+     name: pv-c
+   spec:
+     capacity:
+       storage: 1Gi
+     accessModes: 
+     - ReadWriteOnce
+     - ReadOnlyMany
+     persistentVolumeReclaimPolicy: Recycle # 当声明被释放，空间将回收再利用
+     nfs:
+       server: 172.16.201.134
+       path: /net/mysql-2
+ [root@master-1 k8s-mysql-replication]#
+
+[root@master-1 k8s-mysql-replication]# kubectl apply -f pv.yaml
+persistentvolume/pv-a created
+persistentvolume/pv-b created
+persistentvolume/pv-c created
+
+[root@master-1 k8s-mysql-replication]#  kubectl get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM                                                                     STORAGECLASS                   REASON   AGE
+pv-a                                       1Gi        RWO,ROX        Recycle          Available                                                                                                                     13s
+pv-b                                       1Gi        RWO,ROX        Recycle          Available                                                                                                                     13s
+pv-c                                       1Gi        RWO,ROX        Recycle          Available                                                                                                                     13s
+
+
+pv一直处于terminating
+
+[root@master-1 k8s-mysql-replication]# kubectl patch pvc data-mysql-ss-0 -p '{"metadata":{"finalizers":null}}'
+persistentvolumeclaim/data-mysql-ss-0 patched
+[root@master-1 k8s-mysql-replication]#  kubectl delete pvc data-mysql-ss-0
+persistentvolumeclaim "data-mysql-ss-0" deleted
+
+kubectl delete -f mysql-statefulset.yaml;kubectl get po -o wide   
+kubectl describe pod mysql-0  -n kube-system
+
+
+
+
+###5.创建configMap配置字典
+[root@master-1 k8s-mysql-replication]# cat mp
+cat: mp: No such file or directory
+[root@master-1 k8s-mysql-replication]# cat cm.yaml 
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql
+  labels:
+    app: mysql
+data:
+  master.cnf: |
+    [mysqld]
+    log-bin
+  slave.cnf: |
+    [mysqld]
+    super-read-only
+[root@master-1 k8s-mysql-replication]# 
+[root@master-1 k8s-mysql-replication]# kubectl apply -f cm.yaml
+[root@master-1 k8s-mysql-replication]# kubectl get cm
+NAME            DATA   AGE
+mysql           2      10s
+
+
+###6.部署headless服务，有状态服务都需要，让服务旗下的Pod彼此发现
+[root@master-1 k8s-mysql-replication]# cat service.yaml 
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-headless
+  labels:
+    app: mysql
+spec:
+  ports:
+  - name: mysql
+    port: 3306
+  clusterIP: None
+  selector:
+    app: mysql
+[root@master-1 k8s-mysql-replication]# 
+
+[root@master-1 k8s-mysql-replication]# kubectl apply -f service.yaml
+service/mysql-headless created
+[root@master-1 k8s-mysql-replication]# kubectl get svc
+NAME             TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)                          AGE
+kubernetes       ClusterIP   10.1.0.1      <none>        443/TCP                          32d
+mongo            ClusterIP   None          <none>        27017/TCP                        10d
+mongo-service    NodePort    10.1.98.245   <none>        27017:27017/TCP                  10d
+mysql-headless   ClusterIP   None          <none>        3306/TCP                         5s
+redis-cluster    NodePort    10.1.231.82   <none>        6379:31000/TCP,16379:30701/TCP   17d
+
+
+###7. 部署SatefulSet应用
+[root@master-1 k8s-mysql-replication]# cat sfs.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql-ss
+spec: 
+  selector: 
+    matchLabels: 
+      app: mysql 
+  serviceName: mysql-headless
+  replicas: 3
+  template: 
+    metadata:
+      labels:
+        app: mysql 
+    spec:
+      initContainers:
+      - name: init-mysql
+        image: mysql:5.7
+        command:
+        - bash
+        - "-c"
+        - |
+          set ex
+          [[ `hostname` =~ -([0-9]+)$ ]] || exit 1
+          ordinal=${BASH_REMATCH[1]}
+          echo [mysqld] > /mnt/conf.d/server-id.cnf
+          echo server-id=$((100 + $ordinal)) >> /mnt/conf.d/server-id.cnf
+          if [[ $ordinal -eq 0 ]]; then
+            cp /mnt/config-map/master.cnf /mnt/conf.d/
+          else
+            cp /mnt/config-map/slave.cnf /mnt/conf.d/
+          fi
+        volumeMounts:
+        - name: conf
+          mountPath: /mnt/conf.d
+        - name: config-map
+          mountPath: /mnt/config-map
+      - name: clone-mysql
+        image: gcr.io/google-samples/xtrabackup:1.0
+        command:
+        - bash
+        - "-c"
+        - |
+          set -ex
+          [[ -d /var/lib/mysql/mysql ]] && exit 0
+          [[ `hostname` =~ -([0-9]+)$ ]] || exit 1
+          ordinal=${BASH_REMATCH[1]}
+          [[ $ordinal -eq 0 ]] && exit 0
+          ncat --recv-only mysql-ss-$(($ordinal-1)).mysql-headless 3307 | xbstream -x -C /var/lib/mysql
+          xtrabackup --prepare --target-dir=/var/lib/mysql
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+          subPath: mysql
+        - name: conf
+          mountPath: /etc/mysql/conf.d
+      containers:
+      - name: mysql
+        image: mysql:5.7
+        env:
+        - name: MYSQL_ALLOW_EMPTY_PASSWORD
+          value: "1"
+        ports:
+        - name: mysql
+          containerPort: 3306
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+          subPath: mysql
+        - name: conf
+          mountPath: /etc/mysql/conf.d
+        resources:
+          requests:
+            cpu: 50m
+            memory: 50Mi
+        livenessProbe:
+          exec:
+            command: ["mysqladmin", "ping"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command: ["mysql", "-h", "127.0.0.1", "-e", "SELECT 1"]
+          initialDelaySeconds: 5
+          periodSeconds: 2
+          timeoutSeconds: 1
+      - name: xtrabackup
+        image: gcr.io/google-samples/xtrabackup:1.0
+        ports:
+        - name: xtrabackup
+          containerPort: 3307
+        command:
+        - bash
+        - "-c"
+        - |
+          set -ex
+          cd /var/lib/mysql
+          if [[ -s xtrabackup_slave_info ]]; then
+            mv xtrabackup_slave_info change_master_to.sql.in
+            rm -f xtrabackup_binlog_info
+          elif [[ -f xtrabackup_binlog_info ]]; then         
+            [[ `cat xtrabackup_binlog_info` =~ ^(.*?)[[:space:]]+(.*?)$ ]] || exit 1
+            rm xtrabackup_binlog_info
+            echo "CHANGE MASTER TO MASTER_LOG_FILE='${BASH_REMATCH[1]}',\
+                  MASTER_LOG_POS=${BASH_REMATCH[2]}" > change_master_to.sql.in
+          fi     
+          if [[ -f change_master_to.sql.in ]]; then
+            echo "Waiting for mysqld to be ready (accepting connections)"
+            until mysql -h 127.0.0.1 -e "SELECT 1"; do sleep 1; done
+            echo "Initializing replication from clone position"
+            mv change_master_to.sql.in change_master_to.sql.orig
+            mysql -h 127.0.0.1 <<EOF
+          $(<change_master_to.sql.orig),
+            MASTER_HOST='mysql-ss-0.mysql-headless',
+            MASTER_USER='root',
+            MASTER_PASSWORD='',
+            MASTER_CONNECT_RETRY=10;
+          START SLAVE;
+          EOF
+          fi
+          exec ncat --listen --keep-open --send-only --max-conns=1 3307 -c \
+            "xtrabackup --backup --slave-info --stream=xbstream --host=127.0.0.1 --user=root"
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+          subPath: mysql
+        - name: conf
+          mountPath: /etc/mysql/conf.d
+        resources:
+          requests:
+            cpu: 10m
+            memory: 10Mi
+      volumes:
+      - name: conf
+        emptyDir: {}
+      - name: config-map
+        configMap:
+          name: mysql
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 0.1Gi
+
+[root@master-1 k8s-mysql-replication]#
+[root@master-1 k8s-mysql-replication]# kubectl apply -f sfs.yaml
+SatefulSet created
+
+查看状态
+[root@master-1 k8s-mysql-replication]# kubectl get po -o wide --watch   |grep mysql
+mysql-ss-0        2/2     Running    0          2m21s   10.244.0.14   master-1   <none>           <none>
+mysql-ss-1        2/2     Running    1          118s    10.244.1.77   node-1     <none>           <none>
+mysql-ss-2        0/2     Init:0/2   0          87s     <none>        node-2     <none>           <none>
+mysql-ss-2        0/2     Init:0/2   0          92s     10.244.2.79   node-2     <none>           <none>
+mysql-ss-2        0/2     Init:1/2   0          93s     10.244.2.79   node-2     <none>           <none>
+mysql-ss-2        0/2     Init:1/2   0          94s     10.244.2.79   node-2     <none>           <none>
+mysql-ss-2        0/2     PodInitializing   0          113s    10.244.2.79   node-2     <none>           <none>
+mysql-ss-2        1/2     Running           0          118s    10.244.2.79   node-2     <none>           <none>
+mysql-ss-2        2/2     Running           0          2m7s    10.244.2.79   node-2     <none>           <none>
+
+###8.查看状态
+[root@master-1 k8s-mysql-replication]# kubectl get po -o wide  |grep mysql         
+mysql-ss-0        2/2     Running   0          4m39s   10.244.0.14   master-1   <none>           <none>
+mysql-ss-1        2/2     Running   1          4m16s   10.244.1.77   node-1     <none>           <none>
+mysql-ss-2        2/2     Running   0          3m45s   10.244.2.79   node-2     <none>           <none>
+
+
+[root@master-1 k8s-mysql-replication]# kubectl get all | grep mysql
+pod/mysql-ss-0        2/2     Running   0          3m29s
+pod/mysql-ss-1        2/2     Running   1          3m6s
+pod/mysql-ss-2        2/2     Running   0          2m35s
+service/mysql-headless   ClusterIP   None          <none>        3306/TCP                         3m42s
+statefulset.apps/mysql-ss        3/3     3m29s
+
+查看节点数据：
+[root@node-1 net]# pwd
+/net
+[root@node-1 net]# ll 
+total 0
+drwxr-xr-x 3 root root 19 Oct 25 10:57 mysql-0
+drwxr-xr-x 3 root root 19 Oct 25 10:57 mysql-1
+drwxr-xr-x 3 root root 19 Oct 25 10:59 mysql-2
+[root@node-1 net]# ll *
+mysql-0:
+total 4
+drwxr-xr-x 7 polkitd root 4096 Oct 25 11:12 mysql
+
+mysql-1:
+total 4
+drwxr-xr-x 7 polkitd root 4096 Oct 25 11:12 mysql
+
+mysql-2:
+total 4
+drwxr-xr-x 7 polkitd root 4096 Oct 25 11:12 mysql
+
+
+
+
+######附件配置说明：
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql-ss
+spec: 
+  selector: 
+    matchLabels: 
+      app: mysql 
+  serviceName: mysql-headless
+  replicas: 3
+  template: 
+    metadata:
+      labels:
+        app: mysql 
+    spec:
+      initContainers:
+      - name: init-mysql
+        image: mysql:5.7
+        command:
+        - bash
+        - "-c"
+        - |
+          set ex
+          # 从hostname中获取索引，比如(mysql-1)会获取(1)
+          [[ `hostname` =~ -([0-9]+)$ ]] || exit 1
+          ordinal=${BASH_REMATCH[1]}
+          echo [mysqld] > /mnt/conf.d/server-id.cnf
+          # 为了不让server-id相同而增加偏移量
+          echo server-id=$((100 + $ordinal)) >> /mnt/conf.d/server-id.cnf
+          # 拷贝对应的文件到/mnt/conf.d/文件夹中
+          if [[ $ordinal -eq 0 ]]; then
+            cp /mnt/config-map/master.cnf /mnt/conf.d/
+          else
+            cp /mnt/config-map/slave.cnf /mnt/conf.d/
+          fi
+        volumeMounts:
+        - name: conf
+          mountPath: /mnt/conf.d
+        - name: config-map
+          mountPath: /mnt/config-map
+      - name: clone-mysql
+        image: gcr.io/google-samples/xtrabackup:1.0
+        command:
+        - bash
+        - "-c"
+        - |
+          set -ex
+          # 整体意思:
+          # 1.如果是主mysql中的xtrabackup,就不需要克隆自己了,直接退出
+          # 2.如果是从mysql中的xtrabackup,先判断是否是第一次创建，因为第二次重启本地就有数据库，无需克隆。若是第一次创建(通过/var/lib/mysql/mysql文件是否存在判断),就需要克隆数据库到本地。
+          # 如果有数据不必克隆数据，直接退出()
+          [[ -d /var/lib/mysql/mysql ]] && exit 0
+          # 如果是master数据也不必克隆
+          [[ `hostname` =~ -([0-9]+)$ ]] || exit 1
+          ordinal=${BASH_REMATCH[1]}
+          [[ $ordinal -eq 0 ]] && exit 0
+          # 从序列号比自己小一的数据库克隆数据，比如mysql-2会从mysql-1处克隆数据
+          ncat --recv-only mysql-ss-$(($ordinal-1)).mysql-headless 3307 | xbstream -x -C /var/lib/mysql
+          # 比较数据
+          xtrabackup --prepare --target-dir=/var/lib/mysql
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+          subPath: mysql
+        - name: conf
+          mountPath: /etc/mysql/conf.d
+      containers:
+      - name: mysql
+        image: mysql:5.7
+        env:
+        - name: MYSQL_ALLOW_EMPTY_PASSWORD
+          value: "1"
+        ports:
+        - name: mysql
+          containerPort: 3306
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+          subPath: mysql
+        - name: conf
+          mountPath: /etc/mysql/conf.d
+        resources:
+          requests:
+            cpu: 50m
+            memory: 50Mi
+        livenessProbe:
+          exec:
+            command: ["mysqladmin", "ping"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command: ["mysql", "-h", "127.0.0.1", "-e", "SELECT 1"]
+          initialDelaySeconds: 5
+          periodSeconds: 2
+          timeoutSeconds: 1
+      - name: xtrabackup
+        image: gcr.io/google-samples/xtrabackup:1.0
+        ports:
+        - name: xtrabackup
+          containerPort: 3307
+        command:
+        - bash
+        - "-c"
+        - |
+          set -ex
+          # 确定binlog 克隆数据位置(如果binlog存在的话).
+          cd /var/lib/mysql
+          # 如果存在该文件，则该xrabackup是从现有的从节点克隆出来的。
+          if [[ -s xtrabackup_slave_info ]]; then
+            mv xtrabackup_slave_info change_master_to.sql.in
+            rm -f xtrabackup_binlog_info
+          elif [[ -f xtrabackup_binlog_info ]]; then         
+            [[ `cat xtrabackup_binlog_info` =~ ^(.*?)[[:space:]]+(.*?)$ ]] || exit 1
+            rm xtrabackup_binlog_info
+            echo "CHANGE MASTER TO MASTER_LOG_FILE='${BASH_REMATCH[1]}',\
+                  MASTER_LOG_POS=${BASH_REMATCH[2]}" > change_master_to.sql.in
+          fi     
+          if [[ -f change_master_to.sql.in ]]; then
+            echo "Waiting for mysqld to be ready (accepting connections)"
+            until mysql -h 127.0.0.1 -e "SELECT 1"; do sleep 1; done
+            echo "Initializing replication from clone position"
+            mv change_master_to.sql.in change_master_to.sql.orig
+            mysql -h 127.0.0.1 <<EOF
+          $(<change_master_to.sql.orig),
+            MASTER_HOST='mysql-ss-0.mysql-headless',
+            MASTER_USER='root',
+            MASTER_PASSWORD='',
+            MASTER_CONNECT_RETRY=10;
+          START SLAVE;
+          EOF
+          fi
+          exec ncat --listen --keep-open --send-only --max-conns=1 3307 -c \
+            "xtrabackup --backup --slave-info --stream=xbstream --host=127.0.0.1 --user=root"
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+          subPath: mysql
+        - name: conf
+          mountPath: /etc/mysql/conf.d
+        resources:
+          requests:
+            cpu: 10m
+            memory: 10Mi
+      volumes:
+      - name: conf
+        emptyDir: {}
+      - name: config-map
+        configMap:
+          name: mysql
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 0.1Gi
+
+
+
+[root@master-1 k8s-mysql-replication]# kubectl exec -it mysql-ss-0 bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+Defaulting container name to mysql.
+Use 'kubectl describe pod/mysql-ss-0 -n default' to see all of the containers in this pod.
+root@mysql-ss-0:/# mysql
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 392
+Server version: 5.7.35-log MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+mysql> show databases;
++------------------------+
+| Database               |
++------------------------+
+| information_schema     |
+| mysql                  |
+| performance_schema     |
+| sys                    |
+| xtrabackup_backupfiles |
++------------------------+
+5 rows in set (0.06 sec)
+
+mysql> 
+
+[root@master-1 k8s-mysql-replication]# kubectl exec -it mysql-ss-1 bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+Defaulting container name to mysql.
+Use 'kubectl describe pod/mysql-ss-1 -n default' to see all of the containers in this pod.
+root@mysql-ss-1:/# mysql
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 396
+Server version: 5.7.35 MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> show databases;
++------------------------+
+| Database               |
++------------------------+
+| information_schema     |
+| mysql                  |
+| performance_schema     |
+| sys                    |
+| xtrabackup_backupfiles |
++------------------------+
+5 rows in set (0.04 sec)
+
+mysql> 
+
+[root@master-1 k8s-mysql-replication]# kubectl exec -it mysql-ss-2 bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+Defaulting container name to mysql.
+Use 'kubectl describe pod/mysql-ss-2 -n default' to see all of the containers in this pod.
+root@mysql-ss-2:/# 
+root@mysql-ss-2:/# mysql
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 349
+Server version: 5.7.36 MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+######在salve(mysql-ss-2或mysql-ss-2)上操作:
+######只有master(mysql-0)才有一切操作（读写删....）权限，而salve（mysql-1,mysql-2）只有读的权限
+mysql> CREATE DATABASE demo; 
+ERROR 1290 (HY000): The MySQL server is running with the --super-read-only option so it cannot execute this statement
+mysql> 
+
+
+
+###9、测试同步：
+#####主库建表：
+[root@master-1 k8s-mysql-replication]# kubectl exec -it mysql-ss-0 bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+Defaulting container name to mysql.
+Use 'kubectl describe pod/mysql-ss-0 -n default' to see all of the containers in this pod.
+root@mysql-ss-0:/# mysql
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 493
+Server version: 5.7.35-log MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> show master status;
++-----------------------+----------+--------------+------------------+-------------------+
+| File                  | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++-----------------------+----------+--------------+------------------+-------------------+
+| mysql-ss-0-bin.000003 |      756 |              |                  |                   |
++-----------------------+----------+--------------+------------------+-------------------+
+1 row in set (0.00 sec)
+
+mysql> 
+
+
+mysql>  CREATE DATABASE demo; 
+Query OK, 1 row affected (0.05 sec)
+
+mysql> CREATE TABLE demo.messages (message VARCHAR(250)); 
+Query OK, 0 rows affected (0.05 sec)
+
+mysql> INSERT INTO demo.messages VALUES ('hello');
+Query OK, 1 row affected (0.03 sec)
+
+mysql> 
+
+
+#####从库查表：
+[root@master-1 k8s-mysql-replication]# kubectl exec -it mysql-ss-2 bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+Defaulting container name to mysql.
+Use 'kubectl describe pod/mysql-ss-2 -n default' to see all of the containers in this pod.
+root@mysql-ss-2:/# 
+root@mysql-ss-2:/# mysql
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 425
+Server version: 5.7.36 MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> 
+mysql> 
+mysql> show databases;
++------------------------+
+| Database               |
++------------------------+
+| information_schema     |
+| demo                   |
+| mysql                  |
+| performance_schema     |
+| sys                    |
+| xtrabackup_backupfiles |
++------------------------+
+6 rows in set (0.02 sec)
+
+mysql>  use demo;
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+
+Database changed
+mysql> select * from messages;
++---------+
+| message |
++---------+
+| hello   |
++---------+
+1 row in set (0.00 sec)
+
+mysql> 
+
+
+
+mysql> show slave status\G;
+*************************** 1. row ***************************
+               Slave_IO_State: Waiting for master to send event
+                  Master_Host: mysql-ss-0.mysql-headless
+                  Master_User: root
+                  Master_Port: 3306
+                Connect_Retry: 10
+              Master_Log_File: mysql-ss-0-bin.000003
+          Read_Master_Log_Pos: 756
+               Relay_Log_File: mysql-ss-2-relay-bin.000002
+                Relay_Log_Pos: 927
+        Relay_Master_Log_File: mysql-ss-0-bin.000003
+             Slave_IO_Running: Yes
+            Slave_SQL_Running: Yes
+              Replicate_Do_DB: 
+          Replicate_Ignore_DB: 
+           Replicate_Do_Table: 
+       Replicate_Ignore_Table: 
+      Replicate_Wild_Do_Table: 
+  Replicate_Wild_Ignore_Table: 
+                   Last_Errno: 0
+                   Last_Error: 
+                 Skip_Counter: 0
+          Exec_Master_Log_Pos: 756
+              Relay_Log_Space: 1139
+              Until_Condition: None
+               Until_Log_File: 
+                Until_Log_Pos: 0
+           Master_SSL_Allowed: No
+           Master_SSL_CA_File: 
+           Master_SSL_CA_Path: 
+              Master_SSL_Cert: 
+            Master_SSL_Cipher: 
+               Master_SSL_Key: 
+        Seconds_Behind_Master: 0
+Master_SSL_Verify_Server_Cert: No
+                Last_IO_Errno: 0
+                Last_IO_Error: 
+               Last_SQL_Errno: 0
+               Last_SQL_Error: 
+  Replicate_Ignore_Server_Ids: 
+             Master_Server_Id: 100
+                  Master_UUID: 49b8f260-353f-11ec-a092-5a94cfd92711
+             Master_Info_File: /var/lib/mysql/master.info
+                    SQL_Delay: 0
+          SQL_Remaining_Delay: NULL
+      Slave_SQL_Running_State: Slave has read all relay log; waiting for more updates
+           Master_Retry_Count: 86400
+                  Master_Bind: 
+      Last_IO_Error_Timestamp: 
+     Last_SQL_Error_Timestamp: 
+               Master_SSL_Crl: 
+           Master_SSL_Crlpath: 
+           Retrieved_Gtid_Set: 
+            Executed_Gtid_Set: 
+                Auto_Position: 0
+         Replicate_Rewrite_DB: 
+                 Channel_Name: 
+           Master_TLS_Version: 
+1 row in set (0.00 sec)
+
+ERROR: 
+No query specified
+
+mysql> 
+ok,可以发现同步实现成功。
+
+
+[root@master-1 k8s-mysql-replication]# kubectl get pods --show-labels 
+NAME              READY   STATUS    RESTARTS   AGE   LABELS
+mongo-0           2/2     Running   2          10d   app=mongo,controller-revision-hash=mongo-7845cf5bc9,environment=test,role=mongo,statefulset.kubernetes.io/pod-name=mongo-0
+mongo-1           2/2     Running   2          10d   app=mongo,controller-revision-hash=mongo-7845cf5bc9,environment=test,role=mongo,statefulset.kubernetes.io/pod-name=mongo-1
+mongo-2           2/2     Running   2          10d   app=mongo,controller-revision-hash=mongo-7845cf5bc9,environment=test,role=mongo,statefulset.kubernetes.io/pod-name=mongo-2
+mongo-3           2/2     Running   2          10d   app=mongo,controller-revision-hash=mongo-7845cf5bc9,environment=test,role=mongo,statefulset.kubernetes.io/pod-name=mongo-3
+mongo-4           2/2     Running   2          10d   app=mongo,controller-revision-hash=mongo-7845cf5bc9,environment=test,role=mongo,statefulset.kubernetes.io/pod-name=mongo-4
+mongo-5           2/2     Running   2          10d   app=mongo,controller-revision-hash=mongo-7845cf5bc9,environment=test,role=mongo,statefulset.kubernetes.io/pod-name=mongo-5
+mysql-ss-0        2/2     Running   0          20m   app=mysql,controller-revision-hash=mysql-ss-7d977f6c98,statefulset.kubernetes.io/pod-name=mysql-ss-0
+mysql-ss-1        2/2     Running   1          20m   app=mysql,controller-revision-hash=mysql-ss-7d977f6c98,statefulset.kubernetes.io/pod-name=mysql-ss-1
+mysql-ss-2        2/2     Running   0          19m   app=mysql,controller-revision-hash=mysql-ss-7d977f6c98,statefulset.kubernetes.io/pod-name=mysql-ss-2
+redis-cluster-0   1/1     Running   1          24d   app=redis-cluster,controller-revision-hash=redis-cluster-7dfd545b6d,statefulset.kubernetes.io/pod-name=redis-cluster-0
+redis-cluster-1   1/1     Running   1          16d   app=redis-cluster,controller-revision-hash=redis-cluster-7dfd545b6d,statefulset.kubernetes.io/pod-name=redis-cluster-1
+redis-cluster-2   1/1     Running   1          24d   app=redis-cluster,controller-revision-hash=redis-cluster-7dfd545b6d,statefulset.kubernetes.io/pod-name=redis-cluster-2
+redis-cluster-3   1/1     Running   1          24d   app=redis-cluster,controller-revision-hash=redis-cluster-7dfd545b6d,statefulset.kubernetes.io/pod-name=redis-cluster-3
+redis-cluster-4   1/1     Running   1          24d   app=redis-cluster,controller-revision-hash=redis-cluster-7dfd545b6d,statefulset.kubernetes.io/pod-name=redis-cluster-4
+redis-cluster-5   1/1     Running   1          24d   app=redis-cluster,controller-revision-hash=redis-cluster-7dfd545b6d,statefulset.kubernetes.io/pod-name=redis-cluster-5
+[root@master-1 k8s-mysql-replication]# 
+
+
+###10、部署对外读写服务
+[root@master-1 k8s-mysql-replication]# kubectl get pods --show-labels | grep mysql-ss-0 | awk '{print $6}' | awk -F, '{print $3}'
+statefulset.kubernetes.io/pod-name=mysql-ss-0
+[root@master-1 k8s-mysql-replication]#
+
+
+得到该标签后写入如下selector字段:
+[root@master-1 k8s-mysql-replication]# cat mysql-readwrite.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-readwrite
+  labels:
+    app: mysql
+spec:
+  ports:
+  - name: mysql
+    port: 3306
+    targetPort: 3306
+    nodePort: 30006
+  selector:
+    statefulset.kubernetes.io/pod-name: mysql-ss-0
+  type: NodePort
+[root@master-1 k8s-mysql-replication]# kubectl apply -f  mysql-readwrite.yaml
+service/mysql-readwrite created
+[root@master-1 k8s-mysql-replication]# kubectl get svc|grep mysql
+mysql-headless    ClusterIP   None          <none>        3306/TCP                         32m
+mysql-readwrite   NodePort    10.1.24.219   <none>        3306:30006/TCP                   18s
+
+
+读写连接测试(使用集群任意节点IP:nodePort进行连接)
+[root@master-1 k8s-mysql-replication]# mysql -h172.16.201.134 -uroot -p -P30006
+Enter password: 
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 1226
+Server version: 5.7.35-log MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> show databases;
++------------------------+
+| Database               |
++------------------------+
+| information_schema     |
+| demo                   |
+| mysql                  |
+| performance_schema     |
+| sys                    |
+| xtrabackup_backupfiles |
++------------------------+
+6 rows in set (0.00 sec)
+
+mysql> 
+
+[root@master-1 k8s-mysql-replication]# mysql -h172.16.201.135 -uroot -p -P30006 
+Enter password: 
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 1243
+Server version: 5.7.35-log MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+
+mysql> show master status;
++-----------------------+----------+--------------+------------------+-------------------+
+| File                  | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set |
++-----------------------+----------+--------------+------------------+-------------------+
+| mysql-ss-0-bin.000003 |      756 |              |                  |                   |
++-----------------------+----------+--------------+------------------+-------------------+
+1 row in set (0.01 sec)
+
+
+###11、部署对外读服务
+[root@master-1 k8s-mysql-replication]# cat mysql-read.yaml 
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysqlread
+  labels:
+    app: mysql
+spec:
+  ports:
+  - name: mysql
+    port: 3306
+    targetPort: 3306
+    nodePort: 30036
+  type: NodePort
+  selector:
+    app: mysql
+[root@master-1 k8s-mysql-replication]# 
+
+[root@master-1 k8s-mysql-replication]# kubectl apply -f mysql-read.yaml 
+service/mysqlread created
+[root@master-1 k8s-mysql-replication]# kubectl get svc
+NAME              TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                          AGE
+kubernetes        ClusterIP   10.1.0.1       <none>        443/TCP                          32d
+mongo             ClusterIP   None           <none>        27017/TCP                        10d
+mongo-service     NodePort    10.1.98.245    <none>        27017:27017/TCP                  10d
+mysql-headless    ClusterIP   None           <none>        3306/TCP                         50m
+mysql-readwrite   NodePort    10.1.24.219    <none>        3306:30006/TCP                   18m
+mysqlread         NodePort    10.1.138.131   <none>        3306:30036/TCP                   13s
+redis-cluster     NodePort    10.1.231.82    <none>        6379:31000/TCP,16379:30701/TCP   17d
+[root@master-1 k8s-mysql-replication]# kubectl get svc|grep mysql
+mysql-headless    ClusterIP   None           <none>        3306/TCP                         50m
+mysql-readwrite   NodePort    10.1.24.219    <none>        3306:30006/TCP                   18m
+mysqlread         NodePort    10.1.138.131   <none>        3306:30036/TCP                   20s
+[root@master-1 k8s-mysql-replication]# 
+
+
+[root@master-1 k8s-mysql-replication]# mysql -h172.16.201.134 -uroot -p -P30036 
+Enter password: 
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 1789
+Server version: 5.7.36 MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> use demo
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+
+Database changed
+mysql> 
+mysql> 
+mysql> CREATE TABLE demo.js(name VARCHAR(250)); 
+ERROR 1290 (HY000): The MySQL server is running with the --super-read-only option so it cannot execute this statement
+mysql> 
+
+
+
+
+####12、扩展副本节点数量 
+1、增加pv
+[root@master-1 k8s-mysql-replication]# mkdir -p /net/mysql-3
+[root@master-1 k8s-mysql-replication]# echo '/net/mysql-3 *(rw,no_root_squash)' >> /etc/exports
+[root@master-1 k8s-mysql-replication]# exportfs -r
+[root@master-1 k8s-mysql-replication]# exportfs|grep mysql
+/root/mysql-replicationdata
+/net/mysql-0    <world>
+/net/mysql-1    <world>
+/net/mysql-2    <world>
+/net/mysql-3    <world>
+
+[root@master-1 k8s-mysql-replication]# showmount -e 172.16.201.134|grep mysql
+/net/mysql-3                *
+/net/mysql-2                *
+/net/mysql-1                *
+/net/mysql-0                *
+
+[root@node-2 ~]# df -h|grep 134|grep mysql        
+172.16.201.134:/net/mysql-0            50G  7.2G   43G  15% /net/mysql-0
+172.16.201.134:/net/mysql-1            50G  7.2G   43G  15% /net/mysql-1
+172.16.201.134:/net/mysql-2            50G  7.2G   43G  15% /net/mysql-2
+172.16.201.134:/net/mysql-3            50G  7.2G   43G  15% /net/mysql-3
+
+添加pv 名字是pv-d
+[root@master-1 k8s-mysql-replication]# vim pv.yaml 
+---
+
+  apiVersion: v1
+  kind: PersistentVolume
+  metadata:
+    name: pv-d
+  spec:
+    capacity:
+      storage: 1Gi
+    accessModes:
+    - ReadWriteOnce
+    - ReadOnlyMany
+    persistentVolumeReclaimPolicy: Recycle # 当声明被释放，空间将回收再利用
+    nfs:
+      server: 172.16.201.134
+      path: /net/mysql-3
+
+更新pv配置：
+[root@master-1 k8s-mysql-replication]# kubectl apply -f pv.yaml
+persistentvolume/pv-a unchanged
+persistentvolume/pv-b unchanged
+persistentvolume/pv-c unchanged
+persistentvolume/pv-d created
+
+[root@master-1 k8s-mysql-replication]#  kubectl get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM                                                                     STORAGECLASS                   REASON   AGE
+pv-a                                       1Gi        RWO,ROX        Recycle          Bound       default/data-mysql-ss-0                                                                                           118m
+pv-b                                       1Gi        RWO,ROX        Recycle          Bound       default/data-mysql-ss-1                                                                                           118m
+pv-c                                       1Gi        RWO,ROX        Recycle          Bound       default/data-mysql-ss-2                                                                                           118m
+pv-d                                       1Gi        RWO,ROX        Recycle          Available                                                                                                                     8s
+pv-d是Available状态。
+
+
+[root@master-1 k8s-mysql-replication]# kubectl get statefulset
+NAME            READY   AGE
+mongo           6/6     10d
+mysql-ss        3/3     102m
+redis-cluster   6/6     24d
+
+
+[root@master-1 k8s-mysql-replication]# kubectl scale statefulset mysql-ss --replicas=4
+statefulset.apps/mysql-ss scaled
+[root@master-1 k8s-mysql-replication]# 
+
+
+[root@master-1 k8s-mysql-replication]#  kubectl get pods|grep mysql
+mysql-ss-0        2/2     Running   0          124m
+mysql-ss-1        2/2     Running   1          124m
+mysql-ss-2        2/2     Running   0          123m
+mysql-ss-3        1/2     Running   1          3m50s
+
+
+
+[root@master-1 k8s-mysql-replication]# kubectl get pv|grep mysql
+pv-a                                       1Gi        RWO,ROX        Recycle          Bound    default/data-mysql-ss-0                                                                                           126m
+pv-b                                       1Gi        RWO,ROX        Recycle          Bound    default/data-mysql-ss-1                                                                                           126m
+pv-c                                       1Gi        RWO,ROX        Recycle          Bound    default/data-mysql-ss-2                                                                                           126m
+pv-d                                       1Gi        RWO,ROX        Recycle          Bound    default/data-mysql-ss-3                                                                                           7m56s
+
+
+[root@master-1 k8s-mysql-replication]# kubectl get pvc
+NAME                                       STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS    AGE
+data-mysql-ss-0                            Bound    pv-a                                       1Gi        RWO,ROX                        124m
+data-mysql-ss-1                            Bound    pv-b                                       1Gi        RWO,ROX                        124m
+data-mysql-ss-2                            Bound    pv-c                                       1Gi        RWO,ROX                        123m
+data-mysql-ss-3                            Bound    pv-d                                       1Gi        RWO,ROX                        4m10s
+
+pv-d已经挂上了。
+
+[root@node-1 net]# ll *
+mysql-0:
+total 4
+drwxr-xr-x 7 polkitd root 4096 Oct 25 11:12 mysql
+
+mysql-1:
+total 4
+drwxr-xr-x 7 polkitd root 4096 Oct 25 11:12 mysql
+
+mysql-2:
+total 4
+drwxr-xr-x 7 polkitd root 4096 Oct 25 11:12 mysql
+
+mysql-3:
+total 4
+drwxr-xr-x 7 polkitd root 4096 Oct 25 12:59 mysql
+You have new mail in /var/spool/mail/root
+[root@node-1 net]# 
+
+
+[root@master-1 k8s-mysql-replication]# kubectl exec -it mysql-ss-3 bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+Defaulting container name to mysql.
+Use 'kubectl describe pod/mysql-ss-3 -n default' to see all of the containers in this pod.
+root@mysql-ss-3:/# mysql
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 183
+Server version: 5.7.35 MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> show slave status\G;
+*************************** 1. row ***************************
+               Slave_IO_State: Waiting for master to send event
+                  Master_Host: mysql-ss-0.mysql-headless
+                  Master_User: root
+                  Master_Port: 3306
+                Connect_Retry: 10
+              Master_Log_File: mysql-ss-0-bin.000003
+          Read_Master_Log_Pos: 756
+               Relay_Log_File: mysql-ss-3-relay-bin.000002
+                Relay_Log_Pos: 325
+        Relay_Master_Log_File: mysql-ss-0-bin.000003
+             Slave_IO_Running: Yes
+            Slave_SQL_Running: Yes
+              Replicate_Do_DB: 
+          Replicate_Ignore_DB: 
+           Replicate_Do_Table: 
+       Replicate_Ignore_Table: 
+      Replicate_Wild_Do_Table: 
+  Replicate_Wild_Ignore_Table: 
+                   Last_Errno: 0
+                   Last_Error: 
+                 Skip_Counter: 0
+          Exec_Master_Log_Pos: 756
+              Relay_Log_Space: 537
+              Until_Condition: None
+               Until_Log_File: 
+                Until_Log_Pos: 0
+           Master_SSL_Allowed: No
+           Master_SSL_CA_File: 
+           Master_SSL_CA_Path: 
+              Master_SSL_Cert: 
+            Master_SSL_Cipher: 
+               Master_SSL_Key: 
+        Seconds_Behind_Master: 0
+Master_SSL_Verify_Server_Cert: No
+                Last_IO_Errno: 0
+                Last_IO_Error: 
+               Last_SQL_Errno: 0
+               Last_SQL_Error: 
+  Replicate_Ignore_Server_Ids: 
+             Master_Server_Id: 100
+                  Master_UUID: 49b8f260-353f-11ec-a092-5a94cfd92711
+             Master_Info_File: /var/lib/mysql/master.info
+                    SQL_Delay: 0
+          SQL_Remaining_Delay: NULL
+      Slave_SQL_Running_State: Slave has read all relay log; waiting for more updates
+           Master_Retry_Count: 86400
+                  Master_Bind: 
+      Last_IO_Error_Timestamp: 
+     Last_SQL_Error_Timestamp: 
+               Master_SSL_Crl: 
+           Master_SSL_Crlpath: 
+           Retrieved_Gtid_Set: 
+            Executed_Gtid_Set: 
+                Auto_Position: 0
+         Replicate_Rewrite_DB: 
+                 Channel_Name: 
+           Master_TLS_Version: 
+1 row in set (0.03 sec)
+
+ERROR: 
+No query specified
+
+mysql> 
+第四个节点同步正常，
+
+mysql> show databases;
++------------------------+
+| Database               |
++------------------------+
+| information_schema     |
+| demo                   |
+| mysql                  |
+| performance_schema     |
+| sys                    |
+| xtrabackup_backupfiles |
++------------------------+
+6 rows in set (0.22 sec)
+
+mysql> use demp
+ERROR 1049 (42000): Unknown database 'demp'
+mysql> use demo
+Reading table information for completion of table and column names
+You can turn off this feature to get a quicker startup with -A
+
+Database changed
+mysql> select * from messages;
++---------+
+| message |
++---------+
+| hello   |
++---------+
+1 row in set (0.13 sec)
+
+mysql> 
+数据可读。
+
+
+创建过程：
+[root@master-1 k8s-mysql-replication]# kubectl get event
+11m         Normal    Scheduled                 pod/mysql-ss-3                          Successfully assigned default/mysql-ss-3 to master-1
+11m         Normal    Pulled                    pod/mysql-ss-3                          Container image "mysql:5.7" already present on machine
+11m         Normal    Created                   pod/mysql-ss-3                          Created container init-mysql
+11m         Normal    Started                   pod/mysql-ss-3                          Started container init-mysql
+11m         Normal    Pulled                    pod/mysql-ss-3                          Container image "gcr.io/google-samples/xtrabackup:1.0" already present on machine
+11m         Normal    Created                   pod/mysql-ss-3                          Created container clone-mysql
+11m         Normal    Started                   pod/mysql-ss-3                          Started container clone-mysql
+11m         Normal    Pulled                    pod/mysql-ss-3                          Container image "mysql:5.7" already present on machine
+11m         Normal    Created                   pod/mysql-ss-3                          Created container mysql
+11m         Normal    Started                   pod/mysql-ss-3                          Started container mysql
+11m         Normal    Pulled                    pod/mysql-ss-3                          Container image "gcr.io/google-samples/xtrabackup:1.0" already present on machine
+11m         Normal    Created                   pod/mysql-ss-3                          Created container xtrabackup
+11m         Normal    Started                   pod/mysql-ss-3                          Started container xtrabackup
+11m         Normal    SuccessfulCreate          statefulset/mysql-ss                    create Claim data-mysql-ss-3 Pod mysql-ss-3 in StatefulSet mysql-ss success
+11m         Normal    SuccessfulCreate          statefulset/mysql-ss                    create Pod mysql-ss-3 in StatefulSet mysql-ss successful
+24m         Normal    SuccessfulDelete          statefulset/mysql-ss                    delete Pod mysql-ss-3 in StatefulSet mysql-ss successful
+
+
+
+缩容操作：
+[root@master-1 k8s-mysql-replication]#  kubectl scale statefulset mysql-ss --replicas=3
+statefulset.apps/mysql-ss scaled
+[root@master-1 k8s-mysql-replication]#  kubectl get pods|grep mysql
+mysql-ss-0        2/2     Running   0          133m
+mysql-ss-1        2/2     Running   1          133m
+mysql-ss-2        2/2     Running   0          132m
+
+
+######但是请注意，按比例扩大会自动创建新的 PersistentVolumeClaims，而按比例缩小不会自动删除这些 PVC。 这使你可以选择保留那些初始化的 PVC，以更快地进行缩放，或者在删除它们之前提取数据。这表明，尽管将 StatefulSet 缩小为3，所有5个 PVC 仍然存在：
+[root@master-1 k8s-mysql-replication]# kubectl get pv,pvc|grep mysql
+persistentvolume/pv-a                                       1Gi        RWO,ROX        Recycle          Bound    default/data-mysql-ss-0                                                                                           134m
+persistentvolume/pv-b                                       1Gi        RWO,ROX        Recycle          Bound    default/data-mysql-ss-1                                                                                           134m
+persistentvolume/pv-c                                       1Gi        RWO,ROX        Recycle          Bound    default/data-mysql-ss-2                                                                                           134m
+persistentvolume/pv-d                                       1Gi        RWO,ROX        Recycle          Bound    default/data-mysql-ss-3                                                                                           16m
+persistentvolumeclaim/data-mysql-ss-0                            Bound    pv-a                                       1Gi        RWO,ROX                        134m
+persistentvolumeclaim/data-mysql-ss-1                            Bound    pv-b                                       1Gi        RWO,ROX                        133m
+persistentvolumeclaim/data-mysql-ss-2                            Bound    pv-c                                       1Gi        RWO,ROX                        133m
+persistentvolumeclaim/data-mysql-ss-3                            Bound    pv-d                                       1Gi        RWO,ROX                        13m
+
+
+如果你不打算重复使用多余的 PVC，则可以删除它：
+kubectl delete pvc pv-d
+
+#####操作大概步骤：1、建nfs（建/net/mysql-3目录），建pv（更新pv.yaml配置），扩容（replicas=4）。
+
+
+####13、模拟 Pod 和 Node 的宕机
+
+######1、当前状态：
+[root@master-1 k8s-mysql-replication]# kubectl get pod
+NAME              READY   STATUS    RESTARTS   AGE
+mongo-0           2/2     Running   2          10d
+mongo-1           2/2     Running   2          10d
+mongo-2           2/2     Running   2          10d
+mongo-3           2/2     Running   2          10d
+mongo-4           2/2     Running   2          10d
+mongo-5           2/2     Running   2          10d
+mysql-ss-0        2/2     Running   0          137m
+mysql-ss-1        2/2     Running   1          136m
+mysql-ss-2        2/2     Running   0          136m
+redis-cluster-0   1/1     Running   1          24d
+redis-cluster-1   1/1     Running   1          17d
+redis-cluster-2   1/1     Running   1          24d
+redis-cluster-3   1/1     Running   1          24d
+redis-cluster-4   1/1     Running   1          24d
+redis-cluster-5   1/1     Running   1          24d
+[root@master-1 k8s-mysql-replication]# 
+
+
+######2、破坏就绪态探测，模拟故障：
+[root@master-1 k8s-mysql-replication]# kubectl exec mysql-ss-2 -c mysql -- mv /usr/bin/mysql /usr/bin/mysql.off
+
+在 READY 列中查找 1/2 ：
+[root@master-1 k8s-mysql-replication]# kubectl get pod mysql-ss-2
+NAME         READY   STATUS    RESTARTS   AGE
+mysql-ss-2   1/2     Running   0          141m
+
+
+######3、修复：
+[root@master-1 k8s-mysql-replication]# kubectl exec mysql-ss-2 -c mysql -- mv /usr/bin/mysql.off /usr/bin/mysql
+[root@master-1 k8s-mysql-replication]# kubectl get pod mysql-ss-2
+NAME         READY   STATUS    RESTARTS   AGE
+mysql-ss-2   2/2     Running   0          142m
+
+[root@master-1 k8s-mysql-replication]# kubectl exec -it mysql-ss-2 bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+Defaulting container name to mysql.
+Use 'kubectl describe pod/mysql-ss-2 -n default' to see all of the containers in this pod.
+root@mysql-ss-2:/# mysql 
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 5050
+Server version: 5.7.36 MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> show slave status\G;    
+*************************** 1. row ***************************
+               Slave_IO_State: Waiting for master to send event
+                  Master_Host: mysql-ss-0.mysql-headless
+                  Master_User: root
+                  Master_Port: 3306
+                Connect_Retry: 10
+              Master_Log_File: mysql-ss-0-bin.000003
+          Read_Master_Log_Pos: 756
+               Relay_Log_File: mysql-ss-2-relay-bin.000002
+                Relay_Log_Pos: 927
+        Relay_Master_Log_File: mysql-ss-0-bin.000003
+             Slave_IO_Running: Yes
+            Slave_SQL_Running: Yes
+              Replicate_Do_DB: 
+          Replicate_Ignore_DB: 
+           Replicate_Do_Table: 
+       Replicate_Ignore_Table: 
+      Replicate_Wild_Do_Table: 
+  Replicate_Wild_Ignore_Table: 
+                   Last_Errno: 0
+                   Last_Error: 
+                 Skip_Counter: 0
+          Exec_Master_Log_Pos: 756
+              Relay_Log_Space: 1139
+              Until_Condition: None
+               Until_Log_File: 
+                Until_Log_Pos: 0
+           Master_SSL_Allowed: No
+           Master_SSL_CA_File: 
+           Master_SSL_CA_Path: 
+              Master_SSL_Cert: 
+            Master_SSL_Cipher: 
+               Master_SSL_Key: 
+        Seconds_Behind_Master: 0
+Master_SSL_Verify_Server_Cert: No
+                Last_IO_Errno: 0
+                Last_IO_Error: 
+               Last_SQL_Errno: 0
+               Last_SQL_Error: 
+  Replicate_Ignore_Server_Ids: 
+             Master_Server_Id: 100
+                  Master_UUID: 49b8f260-353f-11ec-a092-5a94cfd92711
+             Master_Info_File: /var/lib/mysql/master.info
+                    SQL_Delay: 0
+          SQL_Remaining_Delay: NULL
+      Slave_SQL_Running_State: Slave has read all relay log; waiting for more updates
+           Master_Retry_Count: 86400
+                  Master_Bind: 
+      Last_IO_Error_Timestamp: 
+     Last_SQL_Error_Timestamp: 
+               Master_SSL_Crl: 
+           Master_SSL_Crlpath: 
+           Retrieved_Gtid_Set: 
+            Executed_Gtid_Set: 
+                Auto_Position: 0
+         Replicate_Rewrite_DB: 
+                 Channel_Name: 
+           Master_TLS_Version: 
+1 row in set (0.00 sec)
+
+ERROR: 
+No query specified
+
+mysql> 
+恢复正常。
+
+
+######4、删除 Pods
+如果删除了 Pod，则 StatefulSet 还会重新创建 Pod，类似于 ReplicaSet 对无状态 Pod 所做的操作。
+
+
+[root@master-1 k8s-mysql-replication]# kubectl delete pod mysql-ss-2
+pod "mysql-ss-2" deleted
+[root@master-1 k8s-mysql-replication]# 
+需要等一会，清理结束
+
+状态：
+[root@master-1 k8s-mysql-replication]# kubectl get pod|grep mysql
+mysql-ss-0        2/2     Running       0          149m
+mysql-ss-1        2/2     Running       1          149m
+mysql-ss-2        2/2     Terminating   0          148m
+
+立即新建mysql-ss-2
+[root@master-1 k8s-mysql-replication]# kubectl get pod|grep mysql
+mysql-ss-0        2/2     Running   0          149m
+mysql-ss-1        2/2     Running   1          149m
+mysql-ss-2        1/2     Running   0          9s
+
+
+[root@master-1 k8s-mysql-replication]# kubectl exec -it mysql-ss-2 bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+Defaulting container name to mysql.
+Use 'kubectl describe pod/mysql-ss-2 -n default' to see all of the containers in this pod.
+root@mysql-ss-2:/# 
+root@mysql-ss-2:/# mysql
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 26
+Server version: 5.7.36 MySQL Community Server (GPL)
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql>  show slave status\G;    
+*************************** 1. row ***************************
+               Slave_IO_State: Waiting for master to send event
+                  Master_Host: mysql-ss-0.mysql-headless
+                  Master_User: root
+                  Master_Port: 3306
+                Connect_Retry: 10
+              Master_Log_File: mysql-ss-0-bin.000003
+          Read_Master_Log_Pos: 756
+               Relay_Log_File: mysql-ss-2-relay-bin.000004
+                Relay_Log_Pos: 325
+        Relay_Master_Log_File: mysql-ss-0-bin.000003
+             Slave_IO_Running: Yes
+            Slave_SQL_Running: Yes
+              Replicate_Do_DB: 
+          Replicate_Ignore_DB: 
+           Replicate_Do_Table: 
+       Replicate_Ignore_Table: 
+      Replicate_Wild_Do_Table: 
+  Replicate_Wild_Ignore_Table: 
+                   Last_Errno: 0
+                   Last_Error: 
+                 Skip_Counter: 0
+          Exec_Master_Log_Pos: 756
+              Relay_Log_Space: 537
+              Until_Condition: None
+               Until_Log_File: 
+                Until_Log_Pos: 0
+           Master_SSL_Allowed: No
+           Master_SSL_CA_File: 
+           Master_SSL_CA_Path: 
+              Master_SSL_Cert: 
+            Master_SSL_Cipher: 
+               Master_SSL_Key: 
+        Seconds_Behind_Master: 0
+Master_SSL_Verify_Server_Cert: No
+                Last_IO_Errno: 0
+                Last_IO_Error: 
+               Last_SQL_Errno: 0
+               Last_SQL_Error: 
+  Replicate_Ignore_Server_Ids: 
+             Master_Server_Id: 100
+                  Master_UUID: 49b8f260-353f-11ec-a092-5a94cfd92711
+             Master_Info_File: /var/lib/mysql/master.info
+                    SQL_Delay: 0
+          SQL_Remaining_Delay: NULL
+      Slave_SQL_Running_State: Slave has read all relay log; waiting for more updates
+           Master_Retry_Count: 86400
+                  Master_Bind: 
+      Last_IO_Error_Timestamp: 
+     Last_SQL_Error_Timestamp: 
+               Master_SSL_Crl: 
+           Master_SSL_Crlpath: 
+           Retrieved_Gtid_Set: 
+            Executed_Gtid_Set: 
+                Auto_Position: 0
+         Replicate_Rewrite_DB: 
+                 Channel_Name: 
+           Master_TLS_Version: 
+1 row in set (0.00 sec)
+
+ERROR: 
+No query specified
+
+mysql> 
+
+StatefulSet 控制器注意到不再存在 mysql-ss-2 Pod，于是创建一个具有相同名称并链接到相同 PersistentVolumeClaim 的新 Pod。 
+新的 mysql-ss-2同步正常。
