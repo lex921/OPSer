@@ -1,0 +1,807 @@
+#Helm安装Kafka
+#####0、Helm安装
+[root@master-1 kafka]#curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+[root@master-1 kafka]#chmod 700 get_helm.sh
+[root@master-1 kafka]#./get_helm.sh
+
+[root@master-1 kafka]# helm version
+version.BuildInfo{Version:"v3.7.1", GitCommit:"1d11fcb5d3f3bf00dbe6fe31b8412839a96b3dc4", GitTreeState:"clean", GoVersion:"go1.16.9"}
+
+介绍
+在 helm 中有三个关键概念：Chart，Repo 及 Release
+Chart: 一系列 k8s 资源集合的命名，它包含一系列 k8s 资源配置文件的模板与参数，可供灵活配置
+Repo: 即 chart 的仓库，其中有很多个 chart 可供选择，如官方 helm/charts[5]
+Release: 当一个 Chart 部署后生成一个 releas
+
+查找相关 Chart:helm search hub
+添加相关 Repo：helm repo add stable https://apphub.aliyuncs.com/stable
+如何部署完成，可以查看安装某个 Release 时的 values：helm get values kafka
+如果需要升级，使用 helm upgrade :helm upgrade kafka bitnami/kafka --values values-production.yaml
+校验部署状态:helm status kafka
+
+Helm CLI 个别更名:
+helm delete更名为 helm uninstall
+helm inspect更名为 helm show
+helm fetch更名为 helm pull
+
+
+#####1、获取kafka的chart包测试：
+[root@master-1 kafka]# helm repo add incubator https://charts.helm.sh/incubator
+"incubator" has been added to your repositories
+
+[root@master-1 kafka]# helm repo list
+NAME            URL                             
+aliyuncs        https://apphub.aliyuncs.com     
+incubator       https://charts.helm.sh/incubator
+
+[root@master-1 kafka]# helm pull incubator/kafka --untar
+[root@master-1 kafka]# ll
+drwxr-xr-x 4 root root  160 Oct 25 18:28 kafka
+
+#####2、修改部分配置
+#######主配置文件values.yaml：
+去掉注释，增加  storageClass: "nas-zk"，已经建立好。
+[root@master-1 kafka]# cat values.yaml |grep storageClass
+  ## If defined, storageClassName: <storageClass>
+  ## If set to "-", storageClassName: "", which disables dynamic provisioning
+  ## If undefined (the default) or set to null, no storageClassName spec is
+  storageClass: "nas-zk"
+	size: "1Gi"
+
+添加type: NodePort
+[root@master-1 kafka]# cat values.yaml |grep -A2 -B2 external
+external:
+  enabled: true
+  type: NodePort
+
+#######zookeeper配置文件:
+[root@master-1 kafka]# vim charts/zookeeper/values.yaml 
+persistence:
+  enabled: true
+  storageClass: "nas-zk"
+  accessMode: ReadWriteOnce
+  size: 5Gi
+
+
+可选：创建namespace，执行：kubectl create namespace kafka-test
+在kafka目录下执行：helm install kafka -f values.yaml incubator/kafka --namespace kafka-test
+
+#####3、安装
+[root@master-1 kafka]# helm install kafka -f values.yaml incubator/kafka
+WARNING: This chart is deprecated
+NAME: kafka
+LAST DEPLOYED: Tue Oct 26 18:42:04 2021
+NAMESPACE: default
+STATUS: deployed
+REVISION: 1
+NOTES:
+######Connecting to Kafka from inside Kubernetes
+
+You can connect to Kafka by running a simple pod in the K8s cluster like this with a configuration like this:
+
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: testclient
+    namespace: default
+  spec:
+    containers:
+    - name: kafka
+      image: confluentinc/cp-kafka:5.0.1
+      command:
+        - sh
+        - -c
+        - "exec tail -f /dev/null"
+
+Once you have the testclient pod above running, you can list all kafka
+topics with:
+
+  kubectl -n default exec testclient -- ./bin/kafka-topics.sh --zookeeper kafka-zookeeper:2181 --list
+
+To create a new topic:
+
+  kubectl -n default exec testclient -- ./bin/kafka-topics.sh --zookeeper kafka-zookeeper:2181 --topic test1 --create --partitions 1 --replication-factor 1
+
+To listen for messages on a topic:
+
+  kubectl -n default exec -ti testclient -- ./bin/kafka-console-consumer.sh --bootstrap-server kafka:9092 --topic test1 --from-beginning
+
+To stop the listener session above press: Ctrl+C
+
+To start an interactive message producer session:
+  kubectl -n default exec -ti testclient -- ./bin/kafka-console-producer.sh --broker-list kafka-headless:9092 --topic test1
+
+To create a message in the above session, simply type the message and press "enter"
+To end the producer session try: Ctrl+C
+
+If you specify "zookeeper.connect" in configurationOverrides, please replace "kafka-zookeeper:2181" with the value of "zookeeper.connect", or you will get error.
+
+
+######## Connecting to Kafka from outside Kubernetes
+
+You have enabled the external access feature of this chart.
+
+**WARNING:** By default this feature allows Kafka clients outside Kubernetes to
+connect to Kafka via NodePort(s) in `PLAINTEXT`.
+
+Please see this chart's README.md for more details and guidance.
+
+If you wish to connect to Kafka from outside please configure your external Kafka
+clients to point at the following brokers. Please allow a few minutes for all
+associated resources to become healthy.
+  
+  kafka.cluster.local:31090
+  kafka.cluster.local:31091
+  kafka.cluster.local:31092
+[root@master-1 kafka]# 
+如果前面的配置没有问题，控制台提示如上所示。
+
+如何部署完成，可以查看安装某个 Release 时的 values
+[root@master-1 kafka]# helm get values kafka
+USER-SUPPLIED VALUES:
+additionalPorts: {}
+affinity: {}
+configJob:
+  backoffLimit: 6
+configurationOverrides:
+  confluent.support.metrics.enable: false
+envOverrides: {}
+external:
+  distinct: false
+  dns:
+    useExternal: true
+    useInternal: false
+  domain: cluster.local
+  enabled: true
+  firstListenerPort: 31090
+  init:
+    image: lwolf/kubectl_deployer
+    imagePullPolicy: IfNotPresent
+    imageTag: "0.4"
+  loadBalancerIP: []
+  loadBalancerSourceRanges: []
+  servicePort: 19092
+  type: NodePort
+headless:
+  port: 9092
+image: confluentinc/cp-kafka
+imagePullPolicy: IfNotPresent
+imageTag: 5.0.1
+jmx:
+  configMap:
+    enabled: true
+    overrideConfig: {}
+    overrideName: ""
+  port: 5555
+  whitelistObjectNames:
+  - kafka.controller:*
+  - kafka.server:*
+  - java.lang:*
+  - kafka.network:*
+  - kafka.log:*
+kafkaHeapOptions: -Xmx1G -Xms1G
+logSubPath: logs
+nodeSelector: {}
+persistence:
+  enabled: true
+  mountPath: /opt/kafka/data
+  size: 1Gi
+  storageClass: nas-zk
+podAnnotations: {}
+podDisruptionBudget: {}
+podLabels: {}
+podManagementPolicy: OrderedReady
+prometheus:
+  jmx:
+    enabled: false
+    image: solsson/kafka-prometheus-jmx-exporter@sha256
+    imageTag: a23062396cd5af1acdf76512632c20ea6be76885dfc20cd9ff40fb23846557e8
+    interval: 10s
+    port: 5556
+    resources: {}
+    scrapeTimeout: 10s
+  kafka:
+    affinity: {}
+    enabled: false
+    image: danielqsj/kafka-exporter
+    imageTag: v1.2.0
+    interval: 10s
+    nodeSelector: {}
+    port: 9308
+    resources: {}
+    scrapeTimeout: 10s
+    tolerations: []
+  operator:
+    enabled: false
+    prometheusRule:
+      enabled: false
+      namespace: monitoring
+      releaseNamespace: false
+      rules:
+      - alert: KafkaNoActiveControllers
+        annotations:
+          message: The number of active controllers in {{ "{{" }} $labels.namespace
+            {{ "}}" }} is less than 1. This usually means that some of the Kafka nodes
+            aren't communicating properly. If it doesn't resolve itself you can try
+            killing the pods (one by one whilst monitoring the under-replicated partitions
+            graph).
+        expr: max(kafka_controller_kafkacontroller_activecontrollercount_value) by
+          (namespace) < 1
+        for: 5m
+        labels:
+          severity: critical
+      - alert: KafkaMultipleActiveControllers
+        annotations:
+          message: The number of active controllers in {{ "{{" }} $labels.namespace
+            {{ "}}" }} is greater than 1. This usually means that some of the Kafka
+            nodes aren't communicating properly. If it doesn't resolve itself you
+            can try killing the pods (one by one whilst monitoring the under-replicated
+            partitions graph).
+        expr: max(kafka_controller_kafkacontroller_activecontrollercount_value) by
+          (namespace) > 1
+        for: 5m
+        labels:
+          severity: critical
+      selector:
+        prometheus: kube-prometheus
+    serviceMonitor:
+      namespace: monitoring
+      releaseNamespace: false
+      selector:
+        prometheus: kube-prometheus
+readinessProbe:
+  failureThreshold: 3
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 5
+replicas: 3
+resources: {}
+securityContext: {}
+terminationGracePeriodSeconds: 60
+testsEnabled: true
+tolerations: []
+topics: []
+updateStrategy:
+  type: OnDelete
+zookeeper:
+  affinity: {}
+  enabled: true
+  env:
+    ZK_HEAP_SIZE: 1G
+  image:
+    PullPolicy: IfNotPresent
+  persistence:
+    enabled: false
+  port: 2181
+  resources: null
+  url: ""
+[root@master-1 kafka]# 
+
+
+
+[root@master-1 kafka]# helm status kafka
+NAME: kafka
+LAST DEPLOYED: Tue Oct 26 18:42:04 2021
+NAMESPACE: default
+STATUS: deployed
+REVISION: 1
+NOTES:
+### Connecting to Kafka from inside Kubernetes
+
+You can connect to Kafka by running a simple pod in the K8s cluster like this with a configuration like this:
+
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: testclient
+    namespace: default
+  spec:
+    containers:
+    - name: kafka
+      image: confluentinc/cp-kafka:5.0.1
+      command:
+        - sh
+        - -c
+        - "exec tail -f /dev/null"
+
+Once you have the testclient pod above running, you can list all kafka
+topics with:
+
+  kubectl -n default exec testclient -- ./bin/kafka-topics.sh --zookeeper kafka-zookeeper:2181 --list
+
+To create a new topic:
+
+  kubectl -n default exec testclient -- ./bin/kafka-topics.sh --zookeeper kafka-zookeeper:2181 --topic test1 --create --partitions 1 --replication-factor 1
+
+To listen for messages on a topic:
+
+  kubectl -n default exec -ti testclient -- ./bin/kafka-console-consumer.sh --bootstrap-server kafka:9092 --topic test1 --from-beginning
+
+To stop the listener session above press: Ctrl+C
+
+To start an interactive message producer session:
+  kubectl -n default exec -ti testclient -- ./bin/kafka-console-producer.sh --broker-list kafka-headless:9092 --topic test1
+
+To create a message in the above session, simply type the message and press "enter"
+To end the producer session try: Ctrl+C
+
+If you specify "zookeeper.connect" in configurationOverrides, please replace "kafka-zookeeper:2181" with the value of "zookeeper.connect", or you will get error.
+
+
+######## Connecting to Kafka from outside Kubernetes
+
+You have enabled the external access feature of this chart.
+
+**WARNING:** By default this feature allows Kafka clients outside Kubernetes to
+connect to Kafka via NodePort(s) in `PLAINTEXT`.
+
+Please see this chart's README.md for more details and guidance.
+
+If you wish to connect to Kafka from outside please configure your external Kafka
+clients to point at the following brokers. Please allow a few minutes for all
+associated resources to become healthy.
+  
+  kafka.cluster.local:31090
+  kafka.cluster.local:31091
+  kafka.cluster.local:31092
+[root@master-1 kafka]# 
+
+
+
+kafka启动依赖zookeeper，整个启动会耗时数分钟，期间可见zookeeper和kafka的pod逐渐启动：
+#####4、查看pod启动
+[root@master-1 ~]# kubectl get pod
+NAME                READY   STATUS    RESTARTS   AGE
+kafka-0             0/1     Running   7          18m
+kafka-zookeeper-0   0/1     Running   1          18m
+kafka-zookeeper-1   1/1     Running   0          12m
+kafka-zookeeper-2   1/1     Running   0          9m51s
+mongo-0             2/2     Running   2          12d
+mongo-1             2/2     Running   2          12d
+mongo-2             2/2     Running   2          12d
+mongo-3             2/2     Running   2          11d
+mongo-4             2/2     Running   2          11d
+mongo-5             2/2     Running   2          11d
+mysql-ss-0          1/2     Running   2          32h
+mysql-ss-1          2/2     Running   1          32h
+mysql-ss-2          2/2     Running   0          29h
+redis-cluster-0     1/1     Running   1          26d
+redis-cluster-1     1/1     Running   1          18d
+redis-cluster-2     1/1     Running   1          26d
+redis-cluster-3     1/1     Running   1          26d
+redis-cluster-4     1/1     Running   1          26d
+redis-cluster-5     1/1     Running   1          26d
+
+#####5、查看 端口
+查看服务：kubectl get services，如下图红框所示，通过宿主机IP:31090、宿主机IP:31091、宿主机IP:31092即可从外部访问kafka：
+[root@master-1 ~]# kubectl get svc         
+NAME                       TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                          AGE
+kafka                      ClusterIP   10.1.70.186    <none>        9092/TCP                         30m
+kafka-0-external           NodePort    10.1.23.35     <none>        19092:31090/TCP                  30m
+kafka-1-external           NodePort    10.1.112.88    <none>        19092:31091/TCP                  30m
+kafka-2-external           NodePort    10.1.60.141    <none>        19092:31092/TCP                  30m
+kafka-headless             ClusterIP   None           <none>        9092/TCP                         30m
+kafka-zookeeper            ClusterIP   10.1.40.125    <none>        2181/TCP                         30m
+kafka-zookeeper-headless   ClusterIP   None           <none>        2181/TCP,3888/TCP,2888/TCP       30m
+kubernetes                 ClusterIP   10.1.0.1       <none>        443/TCP                          34d
+mongo                      ClusterIP   None           <none>        27017/TCP                        12d
+mongo-service              NodePort    10.1.98.245    <none>        27017:27017/TCP                  12d
+mysql-headless             ClusterIP   None           <none>        3306/TCP                         32h
+mysql-readwrite            NodePort    10.1.24.219    <none>        3306:30006/TCP                   31h
+mysqlread                  NodePort    10.1.138.131   <none>        3306:30036/TCP                   31h
+redis-cluster              NodePort    10.1.231.82    <none>        6379:31000/TCP,16379:30701/TCP   18d
+
+[root@master-1 ~]# netstat -antup|grep 3109 
+tcp        0      0 0.0.0.0:31090           0.0.0.0:*               LISTEN      3889/kube-proxy     
+tcp        0      0 0.0.0.0:31091           0.0.0.0:*               LISTEN      3889/kube-proxy     
+tcp        0      0 0.0.0.0:31092           0.0.0.0:*               LISTEN      3889/kube-proxy     
+[root@master-1 ~]# 
+
+
+[root@master-1 kafka]# kubectl get svc|grep kafka
+kafka                      ClusterIP   10.1.70.186    <none>        9092/TCP                         16h
+kafka-0-external           NodePort    10.1.23.35     <none>        19092:31090/TCP                  16h
+kafka-1-external           NodePort    10.1.112.88    <none>        19092:31091/TCP                  16h
+kafka-2-external           NodePort    10.1.60.141    <none>        19092:31092/TCP                  16h
+kafka-headless             ClusterIP   None           <none>        9092/TCP                         16h
+kafka-zookeeper            ClusterIP   10.1.40.125    <none>        2181/TCP                         16h
+kafka-zookeeper-headless   ClusterIP   None           <none>        2181/TCP,3888/TCP,2888/TCP       16h
+[root@master-1 kafka]# 
+
+#####6、连接测试：
+[root@master-1 kafka]# kubectl exec -it kafka-0 bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+root@kafka-0:/# 
+root@kafka-0:/# 
+root@kafka-0:/#        
+root@kafka-0:/# ls /usr/bin |grep kafka
+kafka-acls
+kafka-broker-api-versions
+kafka-configs
+kafka-console-consumer
+kafka-console-producer
+kafka-consumer-groups
+kafka-consumer-perf-test
+kafka-delegation-tokens
+kafka-delete-records
+kafka-dump-log
+kafka-log-dirs
+kafka-mirror-maker
+kafka-preferred-replica-election
+kafka-producer-perf-test
+kafka-reassign-partitions
+kafka-replica-verification
+kafka-run-class
+kafka-server-start
+kafka-server-stop
+kafka-streams-application-reset
+kafka-topics
+kafka-verifiable-consumer
+kafka-verifiable-producer
+
+root@kafka-0:/# ls /usr/share/java/kafka | grep kafka
+kafka-clients-2.0.1-cp1.jar
+kafka-log4j-appender-2.0.1-cp1.jar
+kafka-streams-2.0.1-cp1.jar
+kafka-streams-examples-2.0.1-cp1.jar
+kafka-streams-scala_2.11-2.0.1-cp1.jar
+kafka-streams-test-utils-2.0.1-cp1.jar
+kafka-tools-2.0.1-cp1.jar
+kafka.jar
+kafka_2.11-2.0.1-cp1-javadoc.jar
+kafka_2.11-2.0.1-cp1-scaladoc.jar
+kafka_2.11-2.0.1-cp1-sources.jar
+kafka_2.11-2.0.1-cp1-test-sources.jar
+kafka_2.11-2.0.1-cp1-test.jar
+kafka_2.11-2.0.1-cp1.jar
+
+
+#####7、查看服务：
+root@kafka-0:/# ps -efwww
+UID         PID   PPID  C STIME TTY          TIME CMD
+root          1      0  0 Oct26 ?        00:04:05 java -Xmx1G -Xms1G -server -XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:+ExplicitGCInvokesConcurrent -Djava.awt.headless=true -Xloggc:/var/log/kafka/kafkaServer-gc.log -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=10 -XX:GCLogFileSize=100M -Dcom.sun.management.jmxremote=true -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Djava.rmi.server.hostname=10.244.0.66 -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.rmi.port=5555 -Dcom.sun.management.jmxremote.port=5555 -Dcom.sun.management.jmxremote.port=5555 -Dkafka.logs.dir=/var/log/kafka -Dlog4j.configuration=file:/etc/kafka/log4j.properties -cp /usr/bin/../share/java/kafka/*:/usr/bin/../share/java/confluent-support-metrics/*:/usr/share/java/confluent-support-metrics/* io.confluent.support.metrics.SupportedKafka /etc/kafka/kafka.properties
+root      74544      0  0 07:15 pts/0    00:00:00 bash
+root      74570  74544  0 07:16 pts/0    00:00:00 ps -efwww
+root@kafka-0:/# 
+
+
+[root@master-1 ~]# kubectl  get pod
+NAME                READY   STATUS    RESTARTS   AGE
+kafka-0             0/1     Error     8          46m
+kafka-1             0/1     Error     0          17m
+kafka-2             0/1     Error     0          16m
+kafka-zookeeper-0   0/1     Error     2          46m
+kafka-zookeeper-1   1/1     Running   1          40m
+kafka-zookeeper-2   0/1     Running   1          37m
+mongo-0             2/2     Running   4          12d
+mongo-1             0/2     Error     2          12d
+mongo-2             0/2     Error     2          12d
+mongo-3             0/2     Error     2          12d
+mongo-4             2/2     Running   4          11d
+mongo-5             0/2     Error     2          11d
+mysql-ss-0          0/2     Error     4          32h
+mysql-ss-1          0/2     Error     1          32h
+mysql-ss-2          1/2     Running   3          30h
+redis-cluster-0     1/1     Running   2          26d
+redis-cluster-1     1/1     Running   2          18d
+redis-cluster-2     1/1     Running   2          26d
+redis-cluster-3     0/1     Error     1          26d
+redis-cluster-4     1/1     Running   2          26d
+redis-cluster-5     1/1     Running   2          26d
+
+逐步都启动完毕
+[root@master-1 ~]# kubectl  get pod
+NAME                READY   STATUS    RESTARTS   AGE
+kafka-0             0/1     Running   9          47m
+kafka-1             0/1     Running   1          18m
+kafka-2             0/1     Running   1          17m
+kafka-zookeeper-0   0/1     Running   3          47m
+kafka-zookeeper-1   1/1     Running   1          41m
+kafka-zookeeper-2   1/1     Running   1          38m
+mongo-0             2/2     Running   4          12d
+mongo-1             2/2     Running   4          12d
+mongo-2             0/2     Error     2          12d
+mongo-3             0/2     Error     2          12d
+mongo-4             2/2     Running   4          11d
+mongo-5             2/2     Running   4          11d
+mysql-ss-0          1/2     Running   6          32h
+mysql-ss-1          1/2     Running   3          32h
+mysql-ss-2          1/2     Running   3          30h
+redis-cluster-0     1/1     Running   2          26d
+redis-cluster-1     1/1     Running   2          18d
+redis-cluster-2     1/1     Running   2          26d
+redis-cluster-3     1/1     Running   2          26d
+redis-cluster-4     1/1     Running   2          26d
+redis-cluster-5     1/1     Running   2          26d
+
+[root@master-1 ~]# kubectl  get pod
+NAME                READY   STATUS    RESTARTS   AGE
+kafka-0             0/1     Running   9          47m
+kafka-1             0/1     Running   1          18m
+kafka-2             0/1     Running   1          18m
+kafka-zookeeper-0   0/1     Running   3          47m
+kafka-zookeeper-1   1/1     Running   1          41m
+kafka-zookeeper-2   1/1     Running   1          38m
+mongo-0             2/2     Running   4          12d
+mongo-1             2/2     Running   4          12d
+mongo-2             2/2     Running   4          12d
+mongo-3             2/2     Running   4          12d
+mongo-4             2/2     Running   4          11d
+mongo-5             2/2     Running   4          11d
+mysql-ss-0          2/2     Running   6          32h
+mysql-ss-1          1/2     Running   3          32h
+mysql-ss-2          1/2     Running   3          30h
+redis-cluster-0     1/1     Running   2          26d
+redis-cluster-1     1/1     Running   2          18d
+redis-cluster-2     1/1     Running   2          26d
+redis-cluster-3     1/1     Running   2          26d
+redis-cluster-4     1/1     Running   2          26d
+redis-cluster-5     1/1     Running   2          26d
+[root@master-1 ~]# 
+
+#####8、查看kafka版本：
+查看kafka版本：kubectl exec kafka-0 -n kafka-test -- sh -c 'ls /usr/share/java/kafka/kafka_*.jar' ，如下图红框所示，scala版本2.11，kafka版本2.0.1
+[root@master-1 kafka]# kubectl exec kafka-0  -- sh -c 'ls /usr/share/java/kafka/kafka_*.jar'
+/usr/share/java/kafka/kafka_2.11-2.0.1-cp1-javadoc.jar
+/usr/share/java/kafka/kafka_2.11-2.0.1-cp1-scaladoc.jar
+/usr/share/java/kafka/kafka_2.11-2.0.1-cp1-sources.jar
+/usr/share/java/kafka/kafka_2.11-2.0.1-cp1-test-sources.jar
+/usr/share/java/kafka/kafka_2.11-2.0.1-cp1-test.jar
+/usr/share/java/kafka/kafka_2.11-2.0.1-cp1.jar
+[root@master-1 kafka]# 
+kafka启动成功后，咱们来验证服务是否正常；
+
+
+
+
+#####9、对外暴露zookeeper
+为了远程操作kafka，有时需要连接到zookeeper，所以需要将zookeeper也暴露出来；
+创建文件zookeeper-nodeport-svc.yaml，内容如下：
+[root@master-1 helm]# vim zookeeper-nodeport-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper-nodeport
+spec:
+  type: NodePort
+  ports:
+       - port: 2181
+         nodePort: 31181
+  selector:
+    app: zookeeper
+    release: kafka
+
+[root@master-1 helm]# kubectl apply -f zookeeper-nodeport-svc.yaml
+service/zookeeper-nodeport created
+
+查看服务，发现已经可以通过宿主机IP:32181访问zookeeper了，如下:
+[root@master-1 ~]# kubectl  get svc
+NAME                       TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                          AGE
+kafka                      ClusterIP   10.1.70.186    <none>        9092/TCP                         17h
+kafka-0-external           NodePort    10.1.23.35     <none>        19092:31090/TCP                  17h
+kafka-1-external           NodePort    10.1.112.88    <none>        19092:31091/TCP                  17h
+kafka-2-external           NodePort    10.1.60.141    <none>        19092:31092/TCP                  17h
+kafka-headless             ClusterIP   None           <none>        9092/TCP                         17h
+kafka-zookeeper            ClusterIP   10.1.40.125    <none>        2181/TCP                         17h
+kafka-zookeeper-headless   ClusterIP   None           <none>        2181/TCP,3888/TCP,2888/TCP       17h
+kubernetes                 ClusterIP   10.1.0.1       <none>        443/TCP                          34d
+mongo                      ClusterIP   None           <none>        27017/TCP                        12d
+mongo-service              NodePort    10.1.98.245    <none>        27017:27017/TCP                  12d
+mysql-headless             ClusterIP   None           <none>        3306/TCP                         2d
+mysql-readwrite            NodePort    10.1.24.219    <none>        3306:30006/TCP                   2d
+mysqlread                  NodePort    10.1.138.131   <none>        3306:30036/TCP                   47h
+redis-cluster              NodePort    10.1.231.82    <none>        6379:31000/TCP,16379:30701/TCP   19d
+zookeeper-nodeport         NodePort    10.1.84.163    <none>        2181:31181/TCP                   36s
+
+[root@master-1 ~]# netstat -antup|grep 31181
+tcp        0      0 0.0.0.0:31181           0.0.0.0:*               LISTEN      3653/kube-proxy     
+
+
+
+#####10、验证kafka服务
+######（1）、pod外测试：
+找一台电脑安装kafka包，就能通过里面自带的命令远程连接和操作K8S的kafka了：
+
+访问kafka官网：http://kafka.apache.org/downloads ，刚才确定了scala版本2.11，kafka版本2.0.1，因此下载下图红框中的版本：
+2.0.1
+Released November 9, 2018
+Release Notes
+Source download: kafka-2.0.1-src.tgz (asc, sha512)
+Binary downloads:
+Scala 2.11  - kafka_2.11-2.0.1.tgz (asc, sha512) ##### 选它
+Scala 2.12  - kafka_2.12-2.0.1.tgz (asc, sha512)
+We build for multiple versions of Scala. This only matters if you are using Scala and you want a version built for the same Scala version you use. Otherwise any version should work (2.12 is recommended).
+
+
+[root@master-1 helm]# wget https://archive.apache.org/dist/kafka/2.0.1/kafka_2.11-2.0.1.tgz
+[root@master-1 kafka_2.11-2.0.1]# tar -xvf kafka_2.11-2.0.1.tgz ;/root/kafka/helm/kafka_2.11-2.0.1/bin
+
+
+装java
+[root@master-1 kafka_2.11-2.0.1]#yum install java -y
+[root@master-1 kafka_2.11-2.0.1]#vim /etc/profile
+source /etc/profile
+export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk-1.8.0.302.b08-0.el7_9.x86_64/jre/
+export CLASSPATH=.:$JAVA_HOME/jre/lib/rt.jar:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+export PATH=$PATH:$JAVA_HOME/bin
+[root@master-1 kafka_2.11-2.0.1]#source /etc/profile
+
+
+空空如也：
+[root@master-1 bin]# ./kafka-topics.sh --list --zookeeper 172.16.201.134:31181
+[root@master-1 bin]# 
+
+创建topic：
+[root@master-1 bin]# ./kafka-topics.sh --create --zookeeper 172.16.201.134:31181 --replication-factor 1 --partitions 1 --topic test001
+Created topic "test001".
+[root@master-1 bin]# ./kafka-topics.sh --list --zookeeper 172.16.201.134:31181
+test001
+[root@master-1 bin]# 
+
+查看名为test001的topic：
+[root@master-1 bin]# ./kafka-topics.sh --describe --zookeeper 172.16.201.134:31181 --topic test001
+Topic:test001   PartitionCount:1        ReplicationFactor:1     Configs:
+        Topic: test001  Partition: 0    Leader: 1       Replicas: 1     Isr: 1
+[root@master-1 bin]# 
+
+进入创建消息的交互模式：
+./kafka-console-producer.sh --broker-list 172.16.201.134:31090 --topic test001
+进入交互模式后，输入任何字符串再输入回车，就会将当前内容作为一条消息发送出去：
+
+kafka-console-producer --bootstrap-server 172.16.201.134:31181 --topic test001 --from-beginning
+./zookeeper-shell.sh 172.16.201.134:31181  <<< "get /brokers/ids/0"
+
+
+######（2）、pod内部测试：
+#######a、在k8s集群内运行下面的客户端Pod，访问kafka broker进行测试：
+[root@master-1 helm]# vim testclient.yaml 
+apiVersion: v1
+kind: Pod
+metadata:
+  name: testclient
+spec:
+  containers:
+  - name: kafka
+    image: confluentinc/cp-kafka:5.0.1
+    command:
+    - sh
+    - -c
+    - "exec tail -f /dev/null"
+[root@master-1 helm]# 
+[root@master-1 helm]# kubectl apply -f testclient.yaml
+pod/testclient created
+[root@master-1 helm]# kubectl exec testclient -it bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+root@testclient:/# 
+
+#######b、查看kafka相关命令：
+root@testclient:/# ls /usr/bin/ | grep kafka
+kafka-acls
+kafka-broker-api-versions
+kafka-configs
+kafka-console-consumer
+kafka-console-producer
+kafka-consumer-groups
+kafka-consumer-perf-test
+kafka-delegation-tokens
+kafka-delete-records
+kafka-dump-log
+kafka-log-dirs
+kafka-mirror-maker
+kafka-preferred-replica-election
+kafka-producer-perf-test
+kafka-reassign-partitions
+kafka-replica-verification
+kafka-run-class
+kafka-server-start
+kafka-server-stop
+kafka-streams-application-reset
+kafka-topics
+kafka-verifiable-consumer
+kafka-verifiable-producer
+root@testclient:/# 
+
+#######c、查看的Topic：
+root@testclient:/# kafka-topics --zookeeper kafka-zookeeper:2181 --list
+test001
+
+#######注：kafka-zookeeper名字由 kubectl get svc 第一列NAME获得，端口由PORT(S) 获得
+#######注：kafka-zookeeper名字由 kubectl get svc 第一列NAME获得，端口由PORT(S) 获得
+
+#######d、进入创建消息的交互模式：
+root@testclient:/# kafka-console-producer --broker-list kafka-headless:9092 --topic test001
+>123
+>123
+>3412342134
+>12341234
+>1234
+>2134
+>1234
+>1234
+>发大水的发放
+>2俄3 
+>ssss
+>ssssssssssss
+
+
+再开一个窗口：
+[root@master-1 bin]# kubectl exec testclient -it bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+root@testclient:/# 
+root@testclient:/# 
+root@testclient:/# kafka-console-consumer --bootstrap-server kafka-headless:9092 --topic test001 --from-beginning
+123
+123
+3412342134
+12341234
+1234
+2134
+1234
+1234
+发大水的发放
+2俄3 
+ssss
+ssssssssssss
+
+#######e、再打开一个窗口，执行命令查看消费者group：
+root@testclient:/# kafka-consumer-groups --bootstrap-server kafka-headless:9092 --list
+console-consumer-69409
+root@testclient:/# 
+可见groupid等于console-consumer-69409
+
+#######f、执行命令查看groupid等于console-consumer-69409的消费情况：
+root@testclient:/# kafka-consumer-groups --group console-consumer-69409 --describe --bootstrap-server kafka-headless:9092
+Consumer group 'console-consumer-69409' has no active members.
+
+TOPIC           PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID     HOST            CLIENT-ID
+test001         0          13              13              0               -               -               -
+root@testclient:/# 
+
+
+#######g、查看配置：
+root@testclient:/# zookeeper-shell kafka-zookeeper:2181  <<< "get /brokers/ids/0"
+Connecting to kafka-zookeeper:2181
+Welcome to ZooKeeper!
+JLine support is enabled
+WATCHER::
+WatchedEvent state:SyncConnected type:None path:null
+[zk: kafka-zookeeper:2181(CONNECTED) 0] get /brokers/ids/0
+{"listener_security_protocol_map":{"PLAINTEXT":"PLAINTEXT"},"endpoints":["PLAINTEXT://10.244.0.66:9092"],"jmx_port":5555,"host":"10.244.0.66","timestamp":"1635317215086","port":9092,"version":4}
+cZxid = 0x400000003
+ctime = Wed Oct 27 06:46:55 UTC 2021
+mZxid = 0x400000003
+mtime = Wed Oct 27 06:46:55 UTC 2021
+pZxid = 0x400000003
+cversion = 0
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x100024fb0fb0000
+dataLength = 194
+numChildren = 0
+[zk: kafka-zookeeper:2181(CONNECTED) 1] root@testclient:/# 
+
+ip显示信息：
+PLAINTEXT://10.244.0.66:9092"
+
+
+#####11、清理资源
+本次实战创建了很多资源：rbac、role、serviceaccount、pod、deployment、service，下面的脚本可以将这些资源清理掉(只剩NFS的文件没有被清理掉)：
+
+helm del --purge kafka
+kubectl delete service zookeeper-nodeport -n kafka-test
+kubectl delete storageclass managed-nfs-storage
+kubectl delete deployment nfs-client-provisioner -n kafka-test
+kubectl delete clusterrolebinding run-nfs-client-provisioner
+kubectl delete serviceaccount nfs-client-provisioner -n kafka-test
+kubectl delete role leader-locking-nfs-client-provisioner -n kafka-test
+kubectl delete rolebinding leader-locking-nfs-client-provisioner -n kafka-test
+kubectl delete clusterrole nfs-client-provisioner-runner
+kubectl delete namespace kafka-test
+至此，K8S环境部署和验证kafka的实战就完成了，希望能给您提供一些参考；
+
+
+
+参考：
+https://www.cnblogs.com/bolingcavalry/p/13917562.html
+https://www.cnblogs.com/skgoo/p/11971883.html
