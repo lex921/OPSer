@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+    name: kafka-01
+spec:
+    capacity:
+      storage: 5Gi
+    accessModes:
+      - ReadWriteOnce
+    persistentVolumeReclaimPolicy: Recycle
+    storageClassName: nas-zk
+    nfs:
+      path: /root/kafkadata/kafka01
+      server: 172.16.201.134
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+    name: kafka-02
+spec:
+    capacity:
+      storage: 5Gi
+    accessModes:
+      - ReadWriteOnce
+    persistentVolumeReclaimPolicy: Recycle
+    storageClassName: nas-zk
+    nfs:
+      path: /root/kafkadata/kafka02
+      server: 172.16.201.134
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+    name: kafka-03
+spec:
+    capacity:
+      storage: 5Gi
+    accessModes:
+      - ReadWriteOnce
+    persistentVolumeReclaimPolicy: Recycle
+    storageClassName: nas-zk
+    nfs:
+      path: /root/kafkadata/kafka03
+      server: 172.16.201.134

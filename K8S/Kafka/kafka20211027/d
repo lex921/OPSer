@@ -1,0 +1,8 @@
+#kubectl delete -f zookeeper.yaml
+#kubectl delete pvc datadir-wm-zk-0
+kubectl delete -f zkpv.yaml
+kubectl delete -f kafkapv.yaml
+kubectl delete -f storageclass.yaml
+
+kubectl get pod,pv,pvc,sc
+

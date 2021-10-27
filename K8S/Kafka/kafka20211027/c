@@ -1,0 +1,9 @@
+
+kubectl apply -f storageclass.yaml
+kubectl apply -f zkpv.yaml
+kubectl apply -f kafkapv.yaml
+
+#kubectl apply -f zookeeper.yaml
+
+
+kubectl get pod,pv,pvc,sc
