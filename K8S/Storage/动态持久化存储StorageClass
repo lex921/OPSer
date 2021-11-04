@@ -1,0 +1,190 @@
+#动态持久化存储StorageClass
+学习了 PV 和 PVC 的使用方法，但是前面的 PV 都是静态的，什么意思？就是我要使用的一个 PVC 的话就必须手动去创建一个 PV，我们也说过这种方式在很大程度上并不能满足我们的需求，比如我们有一个应用需要对存储的并发度要求比较高，而另外一个应用对读写速度又要求比较高，特别是对于 StatefulSet 类型的应用简单的来使用静态的 PV 就很不合适了，这种情况下我们就需要用到动态 PV，也就是我们今天要讲解的 StorageClass。
+
+而 StorageClass 对象的作用，其实就是创建 PV 的模板。具体地说，StorageClass 对象会定义如下两个部分内容：
+第一，PV 的属性。比如，存储类型、Volume 的大小等等。
+第二，创建这种 PV 需要用到的存储插件。比如，Ceph 等等。
+
+
+静态pod是kubelet直接启动的pod k8s的系统pod就是静态pod
+动态pod是apiserver控制下启动的pod
+
+
+###PersistentVolumeClaim 3大要素：
+######1、storageclass
+[root@master storage]# cat storageclass-nfs.yaml
+apiVersion: storage.k8s.io/v1beta1
+kind: StorageClass
+metadata:
+  name: managed-nfs-storage
+provisioner: fuseim.pri/ifs
+
+######2、rbac授权相关kind，创建集群role角色，使role角色和ServiceAccount账号绑定，创建role角色，赋予权限，将role角色和ServiceAccount绑定
+[root@master storage]# cat rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfs-client-provisioner
+
+---
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: nfs-client-provisioner-runner
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+
+---
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: run-nfs-client-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: nfs-client-provisioner
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: nfs-client-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+
+
+######3、部署一个自动创建pv的服务
+自动创建pv的服务由nfs-client-provisioner 完成
+
+[root@master storage]# cat deployment-nfs.yaml
+kind: Deployment
+apiVersion: extensions/v1beta1
+metadata:
+  name: nfs-client-provisioner
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: nfs-client-provisioner
+    spec:
+    #  imagePullSecrets:
+    #    - name: registry-pull-secret
+      serviceAccount: nfs-client-provisioner
+      containers:
+        - name: nfs-client-provisioner
+          #image: quay.io/external_storage/nfs-client-provisioner:latest
+          image: lizhenliang/nfs-client-provisioner:v2.0.0
+          volumeMounts:
+            - name: nfs-client-root
+              mountPath: /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              #这个值是定义storage里面的那个值
+              value: fuseim.pri/ifs
+            - name: NFS_SERVER
+              value: 192.168.1.39
+            - name: NFS_PATH
+              value: /opt/container_data
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server: 192.168.1.39
+            path: /opt/container_data
+
+######4、创建
+kubectl apply -f storageclass-nfs.yaml
+kubectl apply -f rbac.yaml
+kubectl apply -f deployment-nfs.yaml
+
+######5、查看创建好的storage
+[root@master storage]# kubectl get sc
+NAME                  PROVISIONER      AGE
+managed-nfs-storage   fuseim.pri/ifs   11h
+
+nfs-client-provisioner 会以pod运行在k8s中
+[root@master storage]# kubectl get pod
+NAME                                      READY   STATUS    RESTARTS   AGE
+nfs-client-provisioner-855887f688-hrdwj   1/1     Running   0          10h
+
+
+######6、部署有状态服务，测试自动创建pv
+[root@master ~]# cat nginx.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  ports:
+  - port: 80
+    name: web
+  clusterIP: None
+  selector:
+    app: nginx
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: web
+spec:
+  serviceName: "nginx"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - containerPort: 80
+          name: web
+        volumeMounts:
+        - name: www
+          mountPath: /usr/share/nginx/html
+  volumeClaimTemplates:
+  - metadata:
+      name: www
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "managed-nfs-storage"
+      resources:
+        requests:
+          storage: 1Gi
+
+创建：
+[root@master ~]# kubectl apply -f nginx.yaml
+
+进入其中一个容器，创建一个文件
+[root@master ~]# kubectl exec -it web-0 bash
+bash# cd /usr/share/nginx/html
+bash# touch 1.txt
+
+进入nfs数据目录：
+此处可见到，nfs下面自动创建了三个有标识的数据卷文件夹。
+查看web-0数据卷，是否有刚刚创建的1.txt
+[root@master container_data]# ls default-www-web-0-pvc-2b7c8ce1-13b6-11e9-b1a2-0262b716c880/
+1.txt
+
+现在我们可以将web-0这个pod删掉，测试数据卷里面的文件会不会消失。
+[root@master ~]# kubectl delete pod web-0
+pod "web-0" deleted
+
+经过测试我们可以得到，删掉这个pod以后，又会迅速再拉起一个web-0,并且数据不会丢失，这样我们也就达到了动态的数据持久化。
