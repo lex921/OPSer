@@ -1,0 +1,1268 @@
+#CentOS7.9搭建配置CephFS
+
+##一、准备环境
+systemctl stop firewalld
+systemctl disable firewalld
+setenforce 0
+vim /etc/selimux/config
+selinux=disabled
+
+
+
+hostnamectl --static set-hostname ceph-manager
+hostnamectl --static set-hostname ceph-mon-1
+hostnamectl --static set-hostname ceph-osd-1
+hostnamectl --static set-hostname node-94
+
+[root@master-1 ~]# cat /etc/hosts
+172.16.201.134  master-1 ceph-manager
+172.16.201.135  node-1 ceph-mon-1
+172.16.201.136  node-2 ceph-osd-1 node-94
+[root@master-1 ~]# 
+
+[root@node-1 ~]# vim /etc/hosts
+172.16.201.134  master-1 ceph-manager
+172.16.201.135  node-1 ceph-mon-1
+172.16.201.136  node-2 ceph-osd-1 node-94
+
+[root@node-2 ~]# vim /etc/hosts
+172.16.201.134  master-1 ceph-manager
+172.16.201.135  node-1 ceph-mon-1
+172.16.201.136  node-2 ceph-osd-1 node-94
+
+
+配置manager节点与其他节点ssh key 访问
+[root@ceph-manager ~]# ssh-keygen
+将key 发送到各节点中
+[root@ceph-manager ~]#ssh-copy-id ceph-manager
+[root@ceph-manager ~]#ssh-copy-id ceph-mon-1
+[root@ceph-manager ~]#ssh-copy-id ceph-osd-1
+
+
+
+
+##二、在manager节点安装ceph-deploy
+###1、更新yum源
+[root@ceph-manager ~]#yum -y install centos-release-ceph
+[root@ceph-manager ~]#yum makecache
+###2、安装ceph-deploy
+[root@ceph-manager ~]#yum -y install ceph-deploy ntpdate
+
+###3、在其他各节点安装 ceph 的yum源
+[root@ceph-mon-1 ~]# yum -y install centos-release-ceph
+[root@ceph-mon-1 ~]# yum makecache
+
+[root@ceph-osd-1 ~]# yum -y install centos-release-ceph
+[root@ceph-osd-1 ~]# yum makecache
+
+
+##三、配置ceph集群
+
+###1、创建ceph 目录
+[root@ceph-manager ~]#mkdir -p /etc/ceph
+[root@ceph-manager ~]#cd /etc/ceph
+
+###、2创建监控节点：
+
+
+错误：
+[root@master-1 ceph]# ceph-deploy new ceph-mon-1
+Traceback (most recent call last):
+  File "/usr/bin/ceph-deploy", line 18, in <module>
+    from ceph_deploy.cli import main
+  File "/usr/lib/python2.7/site-packages/ceph_deploy/cli.py", line 1, in <module>
+    import pkg_resources
+ImportError: No module named pkg_resources
+[root@master-1 ceph]# 
+解决：
+[root@master-1 ceph]# yum install python-setuptools -y
+[root@master-1 ceph]# ceph-deploy --version
+2.0.1
+
+
+node-1主机名没改，必须用这个，否则后面初始化一堆问题：
+[root@master-1 ceph]# ceph-deploy new node-1
+[ceph_deploy.conf][DEBUG ] found configuration file at: /root/.cephdeploy.conf
+[ceph_deploy.cli][INFO  ] Invoked (2.0.1): /usr/bin/ceph-deploy new ceph-mon-1
+[ceph_deploy.cli][INFO  ] ceph-deploy options:
+[ceph_deploy.cli][INFO  ]  username                      : None
+[ceph_deploy.cli][INFO  ]  func                          : <function new at 0x7f2795beade8>
+[ceph_deploy.cli][INFO  ]  verbose                       : False
+[ceph_deploy.cli][INFO  ]  overwrite_conf                : False
+[ceph_deploy.cli][INFO  ]  quiet                         : False
+[ceph_deploy.cli][INFO  ]  cd_conf                       : <ceph_deploy.conf.cephdeploy.Conf instance at 0x7f2795363710>
+[ceph_deploy.cli][INFO  ]  cluster                       : ceph
+[ceph_deploy.cli][INFO  ]  ssh_copykey                   : True
+[ceph_deploy.cli][INFO  ]  mon                           : ['ceph-mon-1']
+[ceph_deploy.cli][INFO  ]  public_network                : None
+[ceph_deploy.cli][INFO  ]  ceph_conf                     : None
+[ceph_deploy.cli][INFO  ]  cluster_network               : None
+[ceph_deploy.cli][INFO  ]  default_release               : False
+[ceph_deploy.cli][INFO  ]  fsid                          : None
+[ceph_deploy.new][DEBUG ] Creating new cluster named ceph
+[ceph_deploy.new][INFO  ] making sure passwordless SSH succeeds
+[ceph-mon-1][DEBUG ] connected to host: master-1 
+[ceph-mon-1][INFO  ] Running command: ssh -CT -o BatchMode=yes ceph-mon-1
+[ceph-mon-1][DEBUG ] connected to host: ceph-mon-1 
+[ceph-mon-1][DEBUG ] detect platform information from remote host
+[ceph-mon-1][DEBUG ] detect machine type
+[ceph-mon-1][DEBUG ] find the location of an executable
+[ceph-mon-1][INFO  ] Running command: /usr/sbin/ip link show
+[ceph-mon-1][INFO  ] Running command: /usr/sbin/ip addr show
+[ceph-mon-1][DEBUG ] IP addresses found: [u'10.244.1.0', u'172.16.201.135', u'172.17.0.1']
+[ceph_deploy.new][DEBUG ] Resolving host ceph-mon-1
+[ceph_deploy.new][DEBUG ] Monitor ceph-mon-1 at 172.16.201.135
+[ceph_deploy.new][DEBUG ] Monitor initial members are ['ceph-mon-1']
+[ceph_deploy.new][DEBUG ] Monitor addrs are ['172.16.201.135']
+[ceph_deploy.new][DEBUG ] Creating a random mon key...
+[ceph_deploy.new][DEBUG ] Writing monitor keyring to ceph.mon.keyring...
+[ceph_deploy.new][DEBUG ] Writing initial config to ceph.conf...
+[root@master-1 ceph]# 
+
+[root@master-1 ceph]# ls
+ceph.conf  ceph-deploy-ceph.log  ceph.mon.keyring
+
+执行完毕会生成 ceph.conf ceph.log ceph.mon.keyring 三个文件
+
+###3、编辑 ceph.conf 增加 osd 节点数量
+在最后增加：
+osd pool default size = 1
+
+[root@master-1 ceph]# vim ceph.conf
+[global]
+fsid = 69aadba9-4fc4-4e2b-a2b0-a9ec59ffe796
+mon_initial_members = ceph-mon-1
+mon_host = 172.16.201.135
+auth_cluster_required = cephx
+auth_service_required = cephx
+auth_client_required = cephx
+osd pool default size = 1
+
+
+
+###4、使用ceph-deploy在所有机器安装ceph
+
+
+
+[root@ceph-manager /etc/ceph]# ceph-deploy install ceph-manager ceph-mon-1 ceph-osd-1
+装一堆东西，此处省略10000个字
+.....................
+[ceph-osd-1][DEBUG ] 
+[ceph-osd-1][DEBUG ] Complete!
+[ceph-osd-1][INFO  ] Running command: ceph --version
+[ceph-osd-1][DEBUG ] ceph version 13.2.10 (564bdc4ae87418a232fc901524470e1a0f76d641) mimic (stable)
+[root@master-1 ceph]# 
+安装完事。
+
+######如果出现错误，也可以到各节点中直接 yum -y install ceph ceph-radosgw 进行安装。
+
+
+
+###5、初始化监控节点
+######报错：
+[root@ceph-manager /etc/ceph]# ceph-deploy mon create-initial
+######错误：[ceph-mon-1][ERROR ] admin_socket: exception getting command descriptions: [Errno 2] No such file or directory
+######解决：由下面这条警告知道，在ceph.conf配置文件中缺少 pubulic network的描述。
+[root@master-1 ceph]# vim ceph.conf 
+[global]
+fsid = 69aadba9-4fc4-4e2b-a2b0-a9ec59ffe796
+mon_initial_members = ceph-mon-1
+mon_host = 172.16.201.135
+auth_cluster_required = cephx
+auth_service_required = cephx
+auth_client_required = cephx
+osd pool default size = 1
+public network = 172.16.201.0/24
+
+增加public network = 172.16.201.0/24。
+
+
+然后，将修改的ceph.conf推送到各个节点上：
+[root@master-1 ceph]# ceph-deploy --overwrite-conf config push ceph-mon-1 ceph-osd-1
+[ceph_deploy.conf][DEBUG ] found configuration file at: /root/.cephdeploy.conf
+[ceph_deploy.cli][INFO  ] Invoked (2.0.1): /usr/bin/ceph-deploy --overwrite-conf config push ceph-mon-1 ceph-osd-1
+[ceph_deploy.cli][INFO  ] ceph-deploy options:
+[ceph_deploy.cli][INFO  ]  username                      : None
+[ceph_deploy.cli][INFO  ]  verbose                       : False
+[ceph_deploy.cli][INFO  ]  overwrite_conf                : True
+[ceph_deploy.cli][INFO  ]  subcommand                    : push
+[ceph_deploy.cli][INFO  ]  quiet                         : False
+[ceph_deploy.cli][INFO  ]  cd_conf                       : <ceph_deploy.conf.cephdeploy.Conf instance at 0x7f0866b5d7e8>
+[ceph_deploy.cli][INFO  ]  cluster                       : ceph
+[ceph_deploy.cli][INFO  ]  client                        : ['ceph-mon-1', 'ceph-osd-1']
+[ceph_deploy.cli][INFO  ]  func                          : <function config at 0x7f0866d8ac08>
+[ceph_deploy.cli][INFO  ]  ceph_conf                     : None
+[ceph_deploy.cli][INFO  ]  default_release               : False
+[ceph_deploy.config][DEBUG ] Pushing config to ceph-mon-1
+[ceph-mon-1][DEBUG ] connected to host: ceph-mon-1 
+[ceph-mon-1][DEBUG ] detect platform information from remote host
+[ceph-mon-1][DEBUG ] detect machine type
+[ceph-mon-1][DEBUG ] write cluster configuration to /etc/ceph/{cluster}.conf
+[ceph_deploy.config][DEBUG ] Pushing config to ceph-osd-1
+[ceph-osd-1][DEBUG ] connected to host: ceph-osd-1 
+[ceph-osd-1][DEBUG ] detect platform information from remote host
+[ceph-osd-1][DEBUG ] detect machine type
+[ceph-osd-1][DEBUG ] write cluster configuration to /etc/ceph/{cluster}.conf
+[root@master-1 ceph]# 
+
+
+######问题：不管改主机名还是设置public network，ceph-deploy mon create-initia还是报错。
+######解决办法：在各个节点上执行sudo pkill ceph，然后再在deploy节点执行ceph-deploy mon create-initial
+再次初始化：
+[root@master-1 ceph]# ceph-deploy mon create-initial
+[ceph_deploy.conf][DEBUG ] found configuration file at: /root/.cephdeploy.conf
+[ceph_deploy.cli][INFO  ] Invoked (2.0.1): /usr/bin/ceph-deploy mon create-initial
+[ceph_deploy.cli][INFO  ] ceph-deploy options:
+[ceph_deploy.cli][INFO  ]  username                      : None
+[ceph_deploy.cli][INFO  ]  verbose                       : False
+[ceph_deploy.cli][INFO  ]  overwrite_conf                : False
+[ceph_deploy.cli][INFO  ]  subcommand                    : create-initial
+[ceph_deploy.cli][INFO  ]  quiet                         : False
+[ceph_deploy.cli][INFO  ]  cd_conf                       : <ceph_deploy.conf.cephdeploy.Conf instance at 0x7fbb44e050e0>
+[ceph_deploy.cli][INFO  ]  cluster                       : ceph
+[ceph_deploy.cli][INFO  ]  func                          : <function mon at 0x7fbb45062410>
+[ceph_deploy.cli][INFO  ]  ceph_conf                     : None
+[ceph_deploy.cli][INFO  ]  default_release               : False
+[ceph_deploy.cli][INFO  ]  keyrings                      : None
+[ceph_deploy.mon][DEBUG ] Deploying mon, cluster ceph hosts node-1
+[ceph_deploy.mon][DEBUG ] detecting platform for host node-1 ...
+[node-1][DEBUG ] connected to host: node-1 
+[node-1][DEBUG ] detect platform information from remote host
+[node-1][DEBUG ] detect machine type
+[node-1][DEBUG ] find the location of an executable
+[ceph_deploy.mon][INFO  ] distro info: CentOS Linux 7.9.2009 Core
+[node-1][DEBUG ] determining if provided host has same hostname in remote
+[node-1][DEBUG ] get remote short hostname
+[node-1][DEBUG ] deploying mon to node-1
+[node-1][DEBUG ] get remote short hostname
+[node-1][DEBUG ] remote hostname: node-1
+[node-1][DEBUG ] write cluster configuration to /etc/ceph/{cluster}.conf
+[node-1][DEBUG ] create the mon path if it does not exist
+[node-1][DEBUG ] checking for done path: /var/lib/ceph/mon/ceph-node-1/done
+[node-1][DEBUG ] create a done file to avoid re-doing the mon deployment
+[node-1][DEBUG ] create the init path if it does not exist
+[node-1][INFO  ] Running command: systemctl enable ceph.target
+[node-1][INFO  ] Running command: systemctl enable ceph-mon@node-1
+[node-1][INFO  ] Running command: systemctl start ceph-mon@node-1
+[node-1][INFO  ] Running command: ceph --cluster=ceph --admin-daemon /var/run/ceph/ceph-mon.node-1.asok mon_status
+[node-1][DEBUG ] ********************************************************************************
+[node-1][DEBUG ] status for monitor: mon.node-1
+[node-1][DEBUG ] {
+[node-1][DEBUG ]   "election_epoch": 3, 
+[node-1][DEBUG ]   "extra_probe_peers": [], 
+[node-1][DEBUG ]   "feature_map": {
+[node-1][DEBUG ]     "mon": [
+[node-1][DEBUG ]       {
+[node-1][DEBUG ]         "features": "0x3ffddff8ffacfffb", 
+[node-1][DEBUG ]         "num": 1, 
+[node-1][DEBUG ]         "release": "luminous"
+[node-1][DEBUG ]       }
+[node-1][DEBUG ]     ]
+[node-1][DEBUG ]   }, 
+[node-1][DEBUG ]   "features": {
+[node-1][DEBUG ]     "quorum_con": "4611087854031667195", 
+[node-1][DEBUG ]     "quorum_mon": [
+[node-1][DEBUG ]       "kraken", 
+[node-1][DEBUG ]       "luminous", 
+[node-1][DEBUG ]       "mimic", 
+[node-1][DEBUG ]       "osdmap-prune"
+[node-1][DEBUG ]     ], 
+[node-1][DEBUG ]     "required_con": "144115738102218752", 
+[node-1][DEBUG ]     "required_mon": [
+[node-1][DEBUG ]       "kraken", 
+[node-1][DEBUG ]       "luminous", 
+[node-1][DEBUG ]       "mimic", 
+[node-1][DEBUG ]       "osdmap-prune"
+[node-1][DEBUG ]     ]
+[node-1][DEBUG ]   }, 
+[node-1][DEBUG ]   "monmap": {
+[node-1][DEBUG ]     "created": "2021-11-02 10:06:32.826519", 
+[node-1][DEBUG ]     "epoch": 1, 
+[node-1][DEBUG ]     "features": {
+[node-1][DEBUG ]       "optional": [], 
+[node-1][DEBUG ]       "persistent": [
+[node-1][DEBUG ]         "kraken", 
+[node-1][DEBUG ]         "luminous", 
+[node-1][DEBUG ]         "mimic", 
+[node-1][DEBUG ]         "osdmap-prune"
+[node-1][DEBUG ]       ]
+[node-1][DEBUG ]     }, 
+[node-1][DEBUG ]     "fsid": "69aadba9-4fc4-4e2b-a2b0-a9ec59ffe796", 
+[node-1][DEBUG ]     "modified": "2021-11-02 10:06:32.826519", 
+[node-1][DEBUG ]     "mons": [
+[node-1][DEBUG ]       {
+[node-1][DEBUG ]         "addr": "172.16.201.135:6789/0", 
+[node-1][DEBUG ]         "name": "node-1", 
+[node-1][DEBUG ]         "public_addr": "172.16.201.135:6789/0", 
+[node-1][DEBUG ]         "rank": 0
+[node-1][DEBUG ]       }
+[node-1][DEBUG ]     ]
+[node-1][DEBUG ]   }, 
+[node-1][DEBUG ]   "name": "node-1", 
+[node-1][DEBUG ]   "outside_quorum": [], 
+[node-1][DEBUG ]   "quorum": [
+[node-1][DEBUG ]     0
+[node-1][DEBUG ]   ], 
+[node-1][DEBUG ]   "rank": 0, 
+[node-1][DEBUG ]   "state": "leader", 
+[node-1][DEBUG ]   "sync_provider": []
+[node-1][DEBUG ] }
+[node-1][DEBUG ] ********************************************************************************
+[node-1][INFO  ] monitor: mon.node-1 is running
+[node-1][INFO  ] Running command: ceph --cluster=ceph --admin-daemon /var/run/ceph/ceph-mon.node-1.asok mon_status
+[ceph_deploy.mon][INFO  ] processing monitor mon.node-1
+[node-1][DEBUG ] connected to host: node-1 
+[node-1][DEBUG ] detect platform information from remote host
+[node-1][DEBUG ] detect machine type
+[node-1][DEBUG ] find the location of an executable
+[node-1][INFO  ] Running command: ceph --cluster=ceph --admin-daemon /var/run/ceph/ceph-mon.node-1.asok mon_status
+[ceph_deploy.mon][INFO  ] mon.node-1 monitor has reached quorum!
+[ceph_deploy.mon][INFO  ] all initial monitors are running and have formed quorum
+[ceph_deploy.mon][INFO  ] Running gatherkeys...
+[ceph_deploy.gatherkeys][INFO  ] Storing keys in temp directory /tmp/tmpae1jCh
+[node-1][DEBUG ] connected to host: node-1 
+[node-1][DEBUG ] detect platform information from remote host
+[node-1][DEBUG ] detect machine type
+[node-1][DEBUG ] get remote short hostname
+[node-1][DEBUG ] fetch remote file
+[node-1][INFO  ] Running command: /usr/bin/ceph --connect-timeout=25 --cluster=ceph --admin-daemon=/var/run/ceph/ceph-mon.node-1.asok mon_status
+[node-1][INFO  ] Running command: /usr/bin/ceph --connect-timeout=25 --cluster=ceph --name mon. --keyring=/var/lib/ceph/mon/ceph-node-1/keyring auth get client.admin
+[node-1][INFO  ] Running command: /usr/bin/ceph --connect-timeout=25 --cluster=ceph --name mon. --keyring=/var/lib/ceph/mon/ceph-node-1/keyring auth get client.bootstrap-mds
+[node-1][INFO  ] Running command: /usr/bin/ceph --connect-timeout=25 --cluster=ceph --name mon. --keyring=/var/lib/ceph/mon/ceph-node-1/keyring auth get client.bootstrap-mgr
+[node-1][INFO  ] Running command: /usr/bin/ceph --connect-timeout=25 --cluster=ceph --name mon. --keyring=/var/lib/ceph/mon/ceph-node-1/keyring auth get client.bootstrap-osd
+[node-1][INFO  ] Running command: /usr/bin/ceph --connect-timeout=25 --cluster=ceph --name mon. --keyring=/var/lib/ceph/mon/ceph-node-1/keyring auth get client.bootstrap-rgw
+[ceph_deploy.gatherkeys][INFO  ] Storing ceph.client.admin.keyring
+[ceph_deploy.gatherkeys][INFO  ] Storing ceph.bootstrap-mds.keyring
+[ceph_deploy.gatherkeys][INFO  ] Storing ceph.bootstrap-mgr.keyring
+[ceph_deploy.gatherkeys][INFO  ] Replacing 'ceph.mon.keyring' and backing up old key as 'ceph.mon.keyring-20211102102904'
+[ceph_deploy.gatherkeys][INFO  ] Storing ceph.bootstrap-osd.keyring
+[ceph_deploy.gatherkeys][INFO  ] Storing ceph.bootstrap-rgw.keyring
+[ceph_deploy.gatherkeys][INFO  ] Destroy temp directory /tmp/tmpae1jCh
+[root@master-1 ceph]# 
+
+ERROR报错消失了，配置初始monitor(s)、并收集到了所有密钥，当前目录下可以看到下面这些密钥环
+[root@master-1 ceph]# pwd
+/etc/ceph
+[root@master-1 ceph]# ll
+total 56
+-rw------- 1 root root   113 Nov  2 10:29 ceph.bootstrap-mds.keyring
+-rw------- 1 root root   113 Nov  2 10:29 ceph.bootstrap-mgr.keyring
+-rw------- 1 root root   113 Nov  2 10:29 ceph.bootstrap-osd.keyring
+-rw------- 1 root root   113 Nov  2 10:29 ceph.bootstrap-rgw.keyring
+-rw------- 1 root root   151 Nov  2 10:29 ceph.client.admin.keyring
+-rw-r--r-- 1 root root   256 Nov  2 10:24 ceph.conf
+-rw-r--r-- 1 root root 22404 Nov  2 10:29 ceph-deploy-ceph.log
+-rw------- 1 root root    77 Nov  2 10:29 ceph.mon.keyring
+-rw------- 1 root root    73 Nov  2 10:29 ceph.mon.keyring-20211102102904
+[root@master-1 ceph]# 
+
+
+###6、osd 节点创建存储空间
+node-2 上增加20g磁盘/dev/sdb
+[root@node-2 ~]# fdisk -l|grep dev
+Disk /dev/sda: 107.4 GB, 107374182400 bytes, 209715200 sectors
+/dev/sda1   *        2048     2099199     1048576   83  Linux
+/dev/sda2         2099200   209715199   103808000   8e  Linux LVM
+Disk /dev/sdb: 21.5 GB, 21474836480 bytes, 41943040 sectors
+Disk /dev/mapper/centos-root: 53.7 GB, 53687091200 bytes, 104857600 sectors
+Disk /dev/mapper/centos-swap: 4160 MB, 4160749568 bytes, 8126464 sectors
+Disk /dev/mapper/centos-home: 48.4 GB, 48444211200 bytes, 94617600 sectors
+
+
+###7、在管理节点上启动 并 激活 osd 进程
+[root@master-1 ceph]# ceph-deploy osd create --data /dev/sdb ceph-osd-1
+
+[ceph_deploy.conf][DEBUG ] found configuration file at: /root/.cephdeploy.conf
+[ceph_deploy.cli][INFO  ] Invoked (2.0.1): /usr/bin/ceph-deploy osd create --data /dev/sdb ceph-osd-1
+[ceph_deploy.cli][INFO  ] ceph-deploy options:
+[ceph_deploy.cli][INFO  ]  verbose                       : False
+[ceph_deploy.cli][INFO  ]  bluestore                     : None
+[ceph_deploy.cli][INFO  ]  cd_conf                       : <ceph_deploy.conf.cephdeploy.Conf instance at 0x7fa014e356c8>
+[ceph_deploy.cli][INFO  ]  cluster                       : ceph
+[ceph_deploy.cli][INFO  ]  fs_type                       : xfs
+[ceph_deploy.cli][INFO  ]  block_wal                     : None
+[ceph_deploy.cli][INFO  ]  default_release               : False
+[ceph_deploy.cli][INFO  ]  username                      : None
+[ceph_deploy.cli][INFO  ]  journal                       : None
+[ceph_deploy.cli][INFO  ]  subcommand                    : create
+[ceph_deploy.cli][INFO  ]  host                          : ceph-osd-1
+[ceph_deploy.cli][INFO  ]  filestore                     : None
+[ceph_deploy.cli][INFO  ]  func                          : <function osd at 0x7fa01507a8c0>
+[ceph_deploy.cli][INFO  ]  ceph_conf                     : None
+[ceph_deploy.cli][INFO  ]  zap_disk                      : False
+[ceph_deploy.cli][INFO  ]  data                          : /dev/sdb
+[ceph_deploy.cli][INFO  ]  block_db                      : None
+[ceph_deploy.cli][INFO  ]  dmcrypt                       : False
+[ceph_deploy.cli][INFO  ]  overwrite_conf                : False
+[ceph_deploy.cli][INFO  ]  dmcrypt_key_dir               : /etc/ceph/dmcrypt-keys
+[ceph_deploy.cli][INFO  ]  quiet                         : False
+[ceph_deploy.cli][INFO  ]  debug                         : False
+[ceph_deploy.osd][DEBUG ] Creating OSD on cluster ceph with data device /dev/sdb
+[ceph-osd-1][DEBUG ] connected to host: ceph-osd-1 
+[ceph-osd-1][DEBUG ] detect platform information from remote host
+[ceph-osd-1][DEBUG ] detect machine type
+[ceph-osd-1][DEBUG ] find the location of an executable
+[ceph_deploy.osd][INFO  ] Distro info: CentOS Linux 7.9.2009 Core
+[ceph_deploy.osd][DEBUG ] Deploying osd to ceph-osd-1
+[ceph-osd-1][DEBUG ] write cluster configuration to /etc/ceph/{cluster}.conf
+[ceph-osd-1][DEBUG ] find the location of an executable
+[ceph-osd-1][INFO  ] Running command: /usr/sbin/ceph-volume --cluster ceph lvm create --bluestore --data /dev/sdb
+[ceph-osd-1][WARNIN] Running command: /bin/ceph-authtool --gen-print-key
+[ceph-osd-1][WARNIN] Running command: /bin/ceph --cluster ceph --name client.bootstrap-osd --keyring /var/lib/ceph/bootstrap-osd/ceph.keyring -i - osd new cbe03e99-e07f-457d-a524-f0bb31470740
+[ceph-osd-1][WARNIN] Running command: /usr/sbin/vgcreate --force --yes ceph-325074cc-9abf-442b-98e8-7061593abf9c /dev/sdb
+[ceph-osd-1][WARNIN]  stdout: Physical volume "/dev/sdb" successfully created.
+[ceph-osd-1][WARNIN]  stdout: Volume group "ceph-325074cc-9abf-442b-98e8-7061593abf9c" successfully created
+[ceph-osd-1][WARNIN] Running command: /usr/sbin/lvcreate --yes -l 100%FREE -n osd-block-cbe03e99-e07f-457d-a524-f0bb31470740 ceph-325074cc-9abf-442b-98e8-7061593abf9c
+[ceph-osd-1][WARNIN]  stdout: Logical volume "osd-block-cbe03e99-e07f-457d-a524-f0bb31470740" created.
+[ceph-osd-1][WARNIN] Running command: /bin/ceph-authtool --gen-print-key
+[ceph-osd-1][WARNIN] Running command: /bin/mount -t tmpfs tmpfs /var/lib/ceph/osd/ceph-0
+[ceph-osd-1][WARNIN] Running command: /bin/chown -h ceph:ceph /dev/ceph-325074cc-9abf-442b-98e8-7061593abf9c/osd-block-cbe03e99-e07f-457d-a524-f0bb31470740
+[ceph-osd-1][WARNIN] Running command: /bin/chown -R ceph:ceph /dev/dm-3
+[ceph-osd-1][WARNIN] Running command: /bin/ln -s /dev/ceph-325074cc-9abf-442b-98e8-7061593abf9c/osd-block-cbe03e99-e07f-457d-a524-f0bb31470740 /var/lib/ceph/osd/ceph-0/block
+[ceph-osd-1][WARNIN] Running command: /bin/ceph --cluster ceph --name client.bootstrap-osd --keyring /var/lib/ceph/bootstrap-osd/ceph.keyring mon getmap -o /var/lib/ceph/osd/ceph-0/activate.monmap
+[ceph-osd-1][WARNIN]  stderr: got monmap epoch 1
+[ceph-osd-1][WARNIN] Running command: /bin/ceph-authtool /var/lib/ceph/osd/ceph-0/keyring --create-keyring --name osd.0 --add-key AQBgpYBh0vejLBAAnse/knSf4Mh6lfD+Z41LBw==
+[ceph-osd-1][WARNIN]  stdout: creating /var/lib/ceph/osd/ceph-0/keyring
+[ceph-osd-1][WARNIN]  stdout: added entity osd.0 auth auth(auid = 18446744073709551615 key=AQBgpYBh0vejLBAAnse/knSf4Mh6lfD+Z41LBw== with 0 caps)
+[ceph-osd-1][WARNIN] Running command: /bin/chown -R ceph:ceph /var/lib/ceph/osd/ceph-0/keyring
+[ceph-osd-1][WARNIN] Running command: /bin/chown -R ceph:ceph /var/lib/ceph/osd/ceph-0/
+[ceph-osd-1][WARNIN] Running command: /bin/ceph-osd --cluster ceph --osd-objectstore bluestore --mkfs -i 0 --monmap /var/lib/ceph/osd/ceph-0/activate.monmap --keyfile - --osd-data /var/lib/ceph/osd/ceph-0/ --osd-uuid cbe03e99-e07f-457d-a524-f0bb31470740 --setuser ceph --setgroup ceph
+[ceph-osd-1][WARNIN] --> ceph-volume lvm prepare successful for: /dev/sdb
+[ceph-osd-1][WARNIN] Running command: /bin/chown -R ceph:ceph /var/lib/ceph/osd/ceph-0
+[ceph-osd-1][WARNIN] Running command: /bin/ceph-bluestore-tool --cluster=ceph prime-osd-dir --dev /dev/ceph-325074cc-9abf-442b-98e8-7061593abf9c/osd-block-cbe03e99-e07f-457d-a524-f0bb31470740 --path /var/lib/ceph/osd/ceph-0 --no-mon-config
+[ceph-osd-1][WARNIN] Running command: /bin/ln -snf /dev/ceph-325074cc-9abf-442b-98e8-7061593abf9c/osd-block-cbe03e99-e07f-457d-a524-f0bb31470740 /var/lib/ceph/osd/ceph-0/block
+[ceph-osd-1][WARNIN] Running command: /bin/chown -h ceph:ceph /var/lib/ceph/osd/ceph-0/block
+[ceph-osd-1][WARNIN] Running command: /bin/chown -R ceph:ceph /dev/dm-3
+[ceph-osd-1][WARNIN] Running command: /bin/chown -R ceph:ceph /var/lib/ceph/osd/ceph-0
+[ceph-osd-1][WARNIN] Running command: /bin/systemctl enable ceph-volume@lvm-0-cbe03e99-e07f-457d-a524-f0bb31470740
+[ceph-osd-1][WARNIN]  stderr: Created symlink from /etc/systemd/system/multi-user.target.wants/ceph-volume@lvm-0-cbe03e99-e07f-457d-a524-f0bb31470740.service to /usr/lib/systemd/system/ceph-volume@.service.
+[ceph-osd-1][WARNIN] Running command: /bin/systemctl enable --runtime ceph-osd@0
+[ceph-osd-1][WARNIN]  stderr: Created symlink from /run/systemd/system/ceph-osd.target.wants/ceph-osd@0.service to /usr/lib/systemd/system/ceph-osd@.service.
+[ceph-osd-1][WARNIN] Running command: /bin/systemctl start ceph-osd@0
+[ceph-osd-1][WARNIN] --> ceph-volume lvm activate successful for osd ID: 0
+[ceph-osd-1][WARNIN] --> ceph-volume lvm create successful for: /dev/sdb
+[ceph-osd-1][INFO  ] checking OSD status...
+[ceph-osd-1][DEBUG ] find the location of an executable
+[ceph-osd-1][INFO  ] Running command: /bin/ceph --cluster=ceph osd stat --format=json
+[ceph_deploy.osd][DEBUG ] Host ceph-osd-1 is now ready for osd use.
+
+
+把管理节点的配置文件与keyring同步至其它节点
+[root@master-1 ceph]# ceph-deploy admin ceph-mon-1 ceph-osd-1
+[ceph_deploy.conf][DEBUG ] found configuration file at: /root/.cephdeploy.conf
+[ceph_deploy.cli][INFO  ] Invoked (2.0.1): /usr/bin/ceph-deploy admin ceph-mon-1 ceph-osd-1
+[ceph_deploy.cli][INFO  ] ceph-deploy options:
+[ceph_deploy.cli][INFO  ]  username                      : None
+[ceph_deploy.cli][INFO  ]  verbose                       : False
+[ceph_deploy.cli][INFO  ]  overwrite_conf                : False
+[ceph_deploy.cli][INFO  ]  quiet                         : False
+[ceph_deploy.cli][INFO  ]  cd_conf                       : <ceph_deploy.conf.cephdeploy.Conf instance at 0x7f50844a0710>
+[ceph_deploy.cli][INFO  ]  cluster                       : ceph
+[ceph_deploy.cli][INFO  ]  client                        : ['ceph-mon-1', 'ceph-osd-1']
+[ceph_deploy.cli][INFO  ]  func                          : <function admin at 0x7f5084d35230>
+[ceph_deploy.cli][INFO  ]  ceph_conf                     : None
+[ceph_deploy.cli][INFO  ]  default_release               : False
+[ceph_deploy.admin][DEBUG ] Pushing admin keys and conf to ceph-mon-1
+[ceph-mon-1][DEBUG ] connected to host: ceph-mon-1 
+[ceph-mon-1][DEBUG ] detect platform information from remote host
+[ceph-mon-1][DEBUG ] detect machine type
+[ceph-mon-1][DEBUG ] write cluster configuration to /etc/ceph/{cluster}.conf
+[ceph_deploy.admin][DEBUG ] Pushing admin keys and conf to ceph-osd-1
+[ceph-osd-1][DEBUG ] connected to host: ceph-osd-1 
+[ceph-osd-1][DEBUG ] detect platform information from remote host
+[ceph-osd-1][DEBUG ] detect machine type
+[ceph-osd-1][DEBUG ] write cluster configuration to /etc/ceph/{cluster}.conf
+[root@master-1 ceph]# 
+
+
+[root@master-1 ceph]# ceph health
+HEALTH_WARN no active mgr
+使用ceph health显示没有激活mgr
+
+解决方法:
+[root@master-1 ceph]# ceph-deploy mgr create ceph-manager ceph-mon-1 ceph-osd-1
+[ceph_deploy.conf][DEBUG ] found configuration file at: /root/.cephdeploy.conf
+[ceph_deploy.cli][INFO  ] Invoked (2.0.1): /usr/bin/ceph-deploy mgr create ceph-manager ceph-mon-1 ceph-osd-1
+[ceph_deploy.cli][INFO  ] ceph-deploy options:
+[ceph_deploy.cli][INFO  ]  username                      : None
+[ceph_deploy.cli][INFO  ]  verbose                       : False
+[ceph_deploy.cli][INFO  ]  mgr                           : [('ceph-manager', 'ceph-manager'), ('ceph-mon-1', 'ceph-mon-1'), ('ceph-osd-1', 'ceph-osd-1')]
+[ceph_deploy.cli][INFO  ]  overwrite_conf                : False
+[ceph_deploy.cli][INFO  ]  subcommand                    : create
+[ceph_deploy.cli][INFO  ]  quiet                         : False
+[ceph_deploy.cli][INFO  ]  cd_conf                       : <ceph_deploy.conf.cephdeploy.Conf instance at 0x7fc875b4f950>
+[ceph_deploy.cli][INFO  ]  cluster                       : ceph
+[ceph_deploy.cli][INFO  ]  func                          : <function mgr at 0x7fc876439140>
+[ceph_deploy.cli][INFO  ]  ceph_conf                     : None
+[ceph_deploy.cli][INFO  ]  default_release               : False
+[ceph_deploy.mgr][DEBUG ] Deploying mgr, cluster ceph hosts ceph-manager:ceph-manager ceph-mon-1:ceph-mon-1 ceph-osd-1:ceph-osd-1
+[ceph-manager][DEBUG ] connected to host: ceph-manager 
+[ceph-manager][DEBUG ] detect platform information from remote host
+[ceph-manager][DEBUG ] detect machine type
+[ceph_deploy.mgr][INFO  ] Distro info: CentOS Linux 7.9.2009 Core
+[ceph_deploy.mgr][DEBUG ] remote host will use systemd
+[ceph_deploy.mgr][DEBUG ] deploying mgr bootstrap to ceph-manager
+[ceph-manager][DEBUG ] write cluster configuration to /etc/ceph/{cluster}.conf
+[ceph-manager][WARNIN] mgr keyring does not exist yet, creating one
+[ceph-manager][DEBUG ] create a keyring file
+[ceph-manager][DEBUG ] create path recursively if it doesn't exist
+[ceph-manager][INFO  ] Running command: ceph --cluster ceph --name client.bootstrap-mgr --keyring /var/lib/ceph/bootstrap-mgr/ceph.keyring auth get-or-create mgr.ceph-manager mon allow profile mgr osd allow * mds allow * -o /var/lib/ceph/mgr/ceph-ceph-manager/keyring
+[ceph-manager][INFO  ] Running command: systemctl enable ceph-mgr@ceph-manager
+[ceph-manager][WARNIN] Created symlink from /etc/systemd/system/ceph-mgr.target.wants/ceph-mgr@ceph-manager.service to /usr/lib/systemd/system/ceph-mgr@.service.
+[ceph-manager][INFO  ] Running command: systemctl start ceph-mgr@ceph-manager
+[ceph-manager][INFO  ] Running command: systemctl enable ceph.target
+[ceph-mon-1][DEBUG ] connected to host: ceph-mon-1 
+[ceph-mon-1][DEBUG ] detect platform information from remote host
+[ceph-mon-1][DEBUG ] detect machine type
+[ceph_deploy.mgr][INFO  ] Distro info: CentOS Linux 7.9.2009 Core
+[ceph_deploy.mgr][DEBUG ] remote host will use systemd
+[ceph_deploy.mgr][DEBUG ] deploying mgr bootstrap to ceph-mon-1
+[ceph-mon-1][DEBUG ] write cluster configuration to /etc/ceph/{cluster}.conf
+[ceph-mon-1][WARNIN] mgr keyring does not exist yet, creating one
+[ceph-mon-1][DEBUG ] create a keyring file
+[ceph-mon-1][DEBUG ] create path recursively if it doesn't exist
+[ceph-mon-1][INFO  ] Running command: ceph --cluster ceph --name client.bootstrap-mgr --keyring /var/lib/ceph/bootstrap-mgr/ceph.keyring auth get-or-create mgr.ceph-mon-1 mon allow profile mgr osd allow * mds allow * -o /var/lib/ceph/mgr/ceph-ceph-mon-1/keyring
+[ceph-mon-1][INFO  ] Running command: systemctl enable ceph-mgr@ceph-mon-1
+[ceph-mon-1][WARNIN] Created symlink from /etc/systemd/system/ceph-mgr.target.wants/ceph-mgr@ceph-mon-1.service to /usr/lib/systemd/system/ceph-mgr@.service.
+[ceph-mon-1][INFO  ] Running command: systemctl start ceph-mgr@ceph-mon-1
+[ceph-mon-1][INFO  ] Running command: systemctl enable ceph.target
+[ceph-osd-1][DEBUG ] connected to host: ceph-osd-1 
+[ceph-osd-1][DEBUG ] detect platform information from remote host
+[ceph-osd-1][DEBUG ] detect machine type
+[ceph_deploy.mgr][INFO  ] Distro info: CentOS Linux 7.9.2009 Core
+[ceph_deploy.mgr][DEBUG ] remote host will use systemd
+[ceph_deploy.mgr][DEBUG ] deploying mgr bootstrap to ceph-osd-1
+[ceph-osd-1][DEBUG ] write cluster configuration to /etc/ceph/{cluster}.conf
+[ceph-osd-1][WARNIN] mgr keyring does not exist yet, creating one
+[ceph-osd-1][DEBUG ] create a keyring file
+[ceph-osd-1][DEBUG ] create path recursively if it doesn't exist
+[ceph-osd-1][INFO  ] Running command: ceph --cluster ceph --name client.bootstrap-mgr --keyring /var/lib/ceph/bootstrap-mgr/ceph.keyring auth get-or-create mgr.ceph-osd-1 mon allow profile mgr osd allow * mds allow * -o /var/lib/ceph/mgr/ceph-ceph-osd-1/keyring
+[ceph-osd-1][INFO  ] Running command: systemctl enable ceph-mgr@ceph-osd-1
+[ceph-osd-1][WARNIN] Created symlink from /etc/systemd/system/ceph-mgr.target.wants/ceph-mgr@ceph-osd-1.service to /usr/lib/systemd/system/ceph-mgr@.service.
+[ceph-osd-1][INFO  ] Running command: systemctl start ceph-mgr@ceph-osd-1
+[ceph-osd-1][INFO  ] Running command: systemctl enable ceph.target
+[root@master-1 ceph]# 
+
+查看状态：
+[root@master-1 ceph]# ceph health
+HEALTH_OK
+[root@master-1 ceph]# ceph -s
+  cluster:
+    id:     69aadba9-4fc4-4e2b-a2b0-a9ec59ffe796
+    health: HEALTH_OK
+ 
+  services:
+    mon: 1 daemons, quorum node-1
+    mgr: ceph-manager(active), standbys: ceph-mon-1, ceph-osd-1
+    osd: 1 osds: 1 up, 1 in
+ 
+  data:
+    pools:   0 pools, 0 pgs
+    objects: 0  objects, 0 B
+    usage:   1.0 GiB used, 19 GiB / 20 GiB avail
+    pgs:     
+ 
+[root@master-1 ceph]# 
+
+
+[root@node-2 ~]# df -h|grep ceph
+tmpfs                    1.9G   52K  1.9G   1% /var/lib/ceph/osd/ceph-0
+[root@node-2 ~]# 
+
+
+######然后加载dashboard模块
+ceph mgr module enable dashboard 
+#####dashboard管理页面
+
+[root@master-1 ceph]# ceph mgr module enable dashboard
+module 'dashboard' is already enabled
+访问：http://172.16.201.134:7000/
+
+
+查看服务访问方式
+[root@master-1 ceph]# ceph mgr services
+{
+    "dashboard": "http://master-1:7000/"
+}
+
+设置dashboard的ip和端口
+ceph config-key put mgr/dashboard/server_addr 192.168.8.106
+ceph config-key put mgr/dashboard/server_port 7000
+
+
+
+
+
+
+###8、客户端挂载
+客户端 挂载: ceph 有多种挂载方式, rbd 块设备映射， cephfs 挂载 等
+注:在生产环境中，客户端应该对应pool的权限，而不是admin 权限
+
+客户端安装ceph
+[root@master-1 ceph]# ceph-deploy install node-94
+[node-94][DEBUG ] Nothing to do
+[node-94][INFO  ] Running command: ceph --version
+[node-94][DEBUG ] ceph version 13.2.10 (564bdc4ae87418a232fc901524470e1a0f76d641) mimic (stable)
+
+或者 登陆 node-94 执行 yum -y install ceph ceph-radosgw
+如果ssh 非22端口，会报错 可使用 scp 传
+scp -P端口 ceph.conf node-94:/etc/ceph/
+scp -P端口 ceph.client.admin.keyring node-94:/etc/ceph/
+
+
+创建一个pool
+[root@master-1 ceph]# ceph osd pool create press 100
+For better initial performance on pools expected to store a large number of objects, consider supplying the expected_num_objects parameter when creating the pool.
+
+[root@master-1 ceph]# ceph osd lspools
+1 press
+
+设置pool 的pgp_num
+[root@master-1 ceph]#  ceph osd pool set press pgp_num 100
+set pool 1 pgp_num to 100
+
+[root@master-1 ceph]# ceph osd lspools
+1 press
+
+设置副本数为2 (osd 必须要大于或者等于副本数，否则报错, 千万注意)
+[root@master-1 ceph]# ceph osd pool set press size 2
+set pool 1 size to 2
+
+创建一个100G 名为 image 镜像
+[root@master-1 ceph]# rbd create -p press --size 100000 image
+[root@master-1 ceph]# rbd create -p press --size 100000 --image-format 2 --image-feature  layering
+
+
+查看一下镜像:
+[root@master-1 ceph]#  rbd -p press info image
+rbd image 'image':
+        size 97.7GiB in 25000 objects
+        order 22 (4MiB objects)
+        block_name_prefix: rbd_data.10336b8b4567
+        format: 2
+        features: layering, exclusive-lock, object-map, fast-diff, deep-flatten
+        flags: 
+        create_timestamp: Tue Nov  2 11:03:55 2021
+[root@master-1 ceph]# 
+
+######错误：OOL_APP_NOT_ENABLED
+[root@master-1 ceph]# ceph osd pool application enable  press rbd    
+enabled application 'rbd' on pool 'press'
+
+
+[root@master-1 ceph]#  ceph osd pool stats
+pool press id 1
+  7/14 objects degraded (50.000%)
+  client io 0B/s rd, 0op/s rd, 0op/s wr
+
+pool cephfs_data id 2
+  nothing is going on
+
+pool cephfs_metadata id 3
+  nothing is going on
+
+[root@master-1 ceph]# ceph osd pool stats  press
+pool press id 1
+  7/14 objects degraded (50.000%)
+  client io 0B/s rd, 0op/s rd, 0op/s wr
+
+
+######错误：TOO_MANY_PGS: too many PGs per OSD (298 > max 250)
+[root@master-1 ceph]# ceph --show-config  | grep -i  mon_max_pg_per_osd
+mon_max_pg_per_osd = 250
+
+[root@master-1 ceph]# ceph osd df
+ID CLASS WEIGHT  REWEIGHT SIZE    USE     DATA    OMAP META AVAIL   %USE VAR  PGS 
+ 0   hdd 0.01949  1.00000 20.0GiB 1.00GiB 3.69MiB   0B 1GiB 19.0GiB 5.02 1.00 298 
+                    TOTAL 20.0GiB 1.00GiB 3.69MiB   0B 1GiB 19.0GiB 5.02          
+MIN/MAX VAR: 1.00/1.00  STDDEV: 0
+[root@master-1 ceph]# 
+
+[root@master-1 ceph]# vim ceph.conf 
+[global]
+fsid = c9342e16-25c1-4228-b5d1-385c41fbbcd1
+mon_initial_members = node-1
+mon_host = 172.16.201.135
+auth_cluster_required = cephx
+auth_service_required = cephx
+auth_client_required = cephx
+osd pool default size = 1
+public_network = 172.16.201.0/24
+mon_max_pg_per_osd = 2500
+
+[root@master-1 ceph]# ceph --show-config | grep "mon_max_pg_per_osd"
+mon_max_pg_per_osd = 2500
+
+自 ceph版本Luminous v12.2.x以后，参数mon_pg_warn_max_per_osd变更为mon_max_pg_per_osd,默认值也从300变更为200，修改该参数后，也由原来的重启ceph-mon服务变为重启ceph-mgr服务。
+
+[root@master-1 ceph]# ceph  df
+GLOBAL:
+    SIZE       AVAIL      RAW USED     %RAW USED 
+    20 GiB     19 GiB      1.0 GiB          5.02 
+POOLS:
+    NAME                ID     USED        %USED     MAX AVAIL     OBJECTS 
+    press               1      6.2 KiB         0       9.0 GiB           7 
+    cephfs_data         2          0 B         0        18 GiB           0 
+    cephfs_metadata     3      2.6 KiB         0        18 GiB          22 
+[root@master-1 ceph]# 
+
+[root@master-1 ceph]#  ceph osd tree
+ID CLASS WEIGHT  TYPE NAME       STATUS REWEIGHT PRI-AFF 
+-1       0.01949 root default                            
+-3       0.01949     host node-2                         
+ 0   hdd 0.01949         osd.0       up  1.00000 1.00000 
+
+
+######重启大法之后  错误消失
+[root@node-1 jicki]# ceph -s
+  cluster:
+    id:     69aadba9-4fc4-4e2b-a2b0-a9ec59ffe796
+    health: HEALTH_WARN
+            Degraded data redundancy: 7/36 objects degraded (19.444%), 7 pgs degraded, 100 pgs undersized
+ 
+  services:
+    mon: 1 daemons, quorum node-1
+    mgr: ceph-manager(active), standbys: ceph-mon-1, ceph-osd-1
+    mds: jicki-1/1/1 up  {0=ceph-mon-1=up:active}
+    osd: 1 osds: 1 up, 1 in
+ 
+  data:
+    pools:   3 pools, 298 pgs
+    objects: 29  objects, 8.9 KiB
+    usage:   1.0 GiB used, 19 GiB / 20 GiB avail
+    pgs:     7/36 objects degraded (19.444%)
+             198 active+clean
+             93  active+undersized
+             7   active+undersized+degraded
+ 
+[root@node-1 jicki]# 
+
+
+
+检查class类型，多了一个ssd
+[root@node-1 jicki]# ceph osd crush class ls
+[
+    "hdd"
+]
+
+
+#####以下pg和副本调整
+查看详情
+
+[root@ceph79 my-ceph]# ceph osd pool ls detail
+pool 1 'fs_kube_data' replicated size 1 min_size 1 crush_rule 0 object_hash rjenkins pg_num 32 pgp_num 32 autoscale_mode warn last_change 12 flags hashpspool stripe_width 0 application cephfs
+pool 2 'fs_kube_metadata' replicated size 1 min_size 1 crush_rule 0 object_hash rjenkins pg_num 32 pgp_num 32 autoscale_mode warn last_change 12 flags hashpspool stripe_width 0 pg_autoscale_bias 4 pg_num_min 16 recovery_priority 5 application cephfs
+
+######将副本2数调成2个
+
+[root@ceph79 my-ceph]# ceph osd pool set fs_kube_data size 2
+set pool 1 size to 2
+
+[root@ceph79 my-ceph]# ceph osd pool set fs_kube_metadata size 2
+set pool 2 size to 2
+查看
+[root@ceph79 my-ceph]# ceph osd pool ls detail
+pool 1 'fs_kube_data' replicated size 2 min_size 1 crush_rule 0 object_hash rjenkins pg_num 32 pgp_num 32 autoscale_mode warn last_change 13 flags hashpspool stripe_width 0 application cephfs
+pool 2 'fs_kube_metadata' replicated size 2 min_size 1 crush_rule 0 object_hash rjenkins pg_num 32 pgp_num 32 autoscale_mode warn last_change 15 flags hashpspool stripe_width 0 pg_autoscale_bias 4 pg_num_min 16 recovery_priority 5 application cephfs
+
+######GP和gpp调整
+[root@ceph79 my-ceph]# ceph osd pool set fs_kube_metadata pg_num 128
+set pool 2 pg_num to 128
+
+[root@ceph79 my-ceph]# ceph osd pool set fs_kube_metadata pgp_num 128
+set pool 2 pgp_num to 128
+查看
+[root@ceph79 my-ceph]# ceph osd pool get fs_kube_metadata pg_num
+pg_num: 128
+
+
+
+[root@node-1 test-pv]# ceph auth list
+installed auth entries:
+
+mds.ceph-mon-1
+        key: AQDrrYBhlMg7IxAAFeLVX0Fh9PQGcejVzPEhDw==
+        caps: [mds] allow
+        caps: [mon] allow profile mds
+        caps: [osd] allow rwx
+osd.0
+        key: AQBgpYBh0vejLBAAnse/knSf4Mh6lfD+Z41LBw==
+        caps: [mgr] allow profile osd
+        caps: [mon] allow profile osd
+        caps: [osd] allow *
+client.admin
+        key: AQBrooBhaVHMCRAAP8rfyWAUaXVC3BVyi8kMXQ==
+        caps: [mds] allow *
+        caps: [mgr] allow *
+        caps: [mon] allow *
+        caps: [osd] allow *
+client.bootstrap-mds
+        key: AQBrooBhUGXMCRAA094dt/hORdPHTvY7UQk2sg==
+        caps: [mon] allow profile bootstrap-mds
+client.bootstrap-mgr
+        key: AQBrooBhzHPMCRAAo9c88shCeJQFCrpQ/5X92A==
+        caps: [mon] allow profile bootstrap-mgr
+client.bootstrap-osd
+        key: AQBrooBh54DMCRAAh3m4ANnoB/rgUhkWpGUgug==
+        caps: [mon] allow profile bootstrap-osd
+client.bootstrap-rbd
+        key: AQBrooBhNo/MCRAAJzglUMyA5eDXuaqJ6CAp5g==
+        caps: [mon] allow profile bootstrap-rbd
+client.bootstrap-rgw
+        key: AQBrooBh3pvMCRAAgTrN+X+HLhFsEZLeGAYENQ==
+        caps: [mon] allow profile bootstrap-rgw
+mgr.ceph-manager
+        key: AQCDpoBheoSpNhAAw6gb4fbW/U5FQPhq2DQexg==
+        caps: [mds] allow *
+        caps: [mon] allow profile mgr
+        caps: [osd] allow *
+mgr.ceph-mon-1
+        key: AQCFpoBhYkRtCRAAOTm/dWiSLF2QWTqhIZsU/g==
+        caps: [mds] allow *
+        caps: [mon] allow profile mgr
+        caps: [osd] allow *
+mgr.ceph-osd-1
+        key: AQCGpoBhsZMPHhAAOBF0enPlax+cU0MVFLPYIQ==
+        caps: [mds] allow *
+        caps: [mon] allow profile mgr
+        caps: [osd] allow *
+
+
+###9、客户端块存储挂载：
+在node-94 上面 map 镜像
+[root@node-2 ~]#rbd -p press map image
+/dev/rbd0
+
+[root@node-2 ~]# rbd -p press map image
+rbd: sysfs write failed
+RBD image feature set mismatch. You can disable features unsupported by the kernel with "rbd feature disable press/image object-map fast-diff deep-flatten".
+In some cases useful info is found in syslog - try "dmesg | tail".
+rbd: map failed: (6) No such device or address
+暂时不查，往下走
+
+格式化 image
+[root@node-2 ~]# mkfs.xfs /dev/rbd0
+
+创建挂载目录
+[root@node-2 ~]# mkdir /opt/rbd
+
+挂载 rbd
+[root@node-2 ~]# mount /dev/rbd0 /opt/rbd
+[root@node-2 ~]# time dd if=/dev/zero of=haha bs=1M count=1000
+
+取消 map 镜像
+[root@node-2 ~]# umount /opt/rbd
+[root@node-2 ~]# rbd unmap /dev/rbd0
+
+ 
+
+
+
+
+###10、客户端 cephFS 文件系统 (cephFS 必须要有2个osd 才能运行，请注意)：
+使用 cephFS 集群中必须有 mds 服务
+创建 mds 服务 (由于机器有限就在 mon 的服务器上面 创建 mds 服务)
+[root@ceph-manager ~]# ceph-deploy mds create ceph-mon-1
+
+创建2个pool 做为文件系统的data 与 metadata
+[root@master-1 ceph]#  ceph osd pool create cephfs_data 99
+pool 'cephfs_data' created
+[root@master-1 ceph]#
+[root@master-1 ceph]#  ceph osd pool create cephfs_metadata 99
+pool 'cephfs_metadata' created
+
+创建 文件系统：
+[root@master-1 ceph]#  ceph fs new jicki cephfs_metadata cephfs_data
+new fs with metadata pool 3 and data pool 2
+
+查看所有文件系统：
+[root@master-1 ceph]#  ceph fs ls
+name: jicki, metadata pool: cephfs_metadata, data pools: [cephfs_data ]
+
+删除一个文件系统
+[root@ceph-manager ~]# ceph fs rm jicki --yes-i-really-mean-it
+
+
+安装 ceph-fuse：
+[root@node-1 ceph]# yum install ceph-fuse -y
+创建挂载目录:
+[root@node-1 ceph]# mkdir -p /opt/jicki
+[root@node-1 ceph]# ceph-fuse /opt/jicki
+[root@node-1 ceph]# df -h|grep ceph
+ceph-fuse                 18G     0   18G   0% /opt/jicki
+
+
+
+
+
+
+###11、卸载ceph
+ceph-deploy purge ceph01
+ceph-deploy purgedata ceph01
+
+rm -rf /var/lib/ceph
+rm -rf /etc/ceph
+rm -rf /var/run/ceph/
+
+
+
+
+###12、K8S 使用：
+查看ceph的key
+#####进入ceph集群的管理主机
+
+[root@master-1 ceph]# ceph auth get-key client.admin | base64
+QVFCcm9vQmhhVkhNQ1JBQVA4cmZ5V0FVYVhWQzNCVnlpOGtNWFE9PQ==
+
+
+#####k8s里面添加密码
+[root@master-1 ceph]# cat ceph-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ceph-secret
+data:
+  key: QVFCcm9vQmhhVkhNQ1JBQVA4cmZ5V0FVYVhWQzNCVnlpOGtNWFE9PQ==
+[root@master-1 ceph]# kubectl apply -f ceph-secret.yaml
+
+#####K8S里面添加一个PV（持久存储盘）
+查看mons的ip
+[root@node-1 test-pv]# ceph mon stat
+e1: 1 mons at {node-1=172.16.201.135:6789/0}, election epoch 9, leader 0 node-1, quorum 0 node-1
+
+[root@master-1 ceph]# cat test-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: test-pv
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteMany
+  cephfs:
+    monitors:
+      - 172.16.201.135:6789
+    path: /
+    user: admin
+    readOnly: false
+    secretRef:
+      name: ceph-secret
+  persistentVolumeReclaimPolicy: Recycle
+[root@master-1 ceph]# kubectl apply -f test-pv.yaml
+
+
+
+#####K8S里面添加一个PVC
+[root@master-1 ceph]# cat test-pvc.yaml
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: test-pvc3
+spec:
+  accessModes:
+    - ReadWriteMany
+  volumeName: test-pv
+  resources:
+    requests:
+      storage: 2Gi
+[root@master-1 ceph]# kubectl apply -f test-pvc.yaml
+
+
+#####K8S里面添加一个部署
+[root@master-1 ceph]# cat test-centos.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-centos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-centos
+  template:
+    metadata:
+      labels:
+        app: test-centos
+    spec:
+      containers:
+      - name: test-centos
+        image: centos
+        command: ["/bin/sh"]
+        args: ["-c","while true;do echo hello;sleep 10;done"]
+        volumeMounts:
+          - mountPath: "/data"
+            name: data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: test-pvc3
+[root@master-1 ceph]# kubectl apply -f test-centos.yaml
+deployment.apps/test-centos created
+
+pod Running了
+[root@master-1 ceph]# kubectl get pods
+NAME                           READY   STATUS    RESTARTS   AGE
+test-centos-6ccff47f57-qwzmj   1/1     Running   0          84s
+
+#####进pod，以下内容在pod里面执行
+[root@master-1 ceph]# kubectl exec -it test-centos-6ccff47f57-qwzmj /bin/bash
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+[root@test-centos-6ccff47f57-qwzmj /]# 
+[root@test-centos-6ccff47f57-qwzmj data]# touch   20200414
+[root@test-centos-6ccff47f57-qwzmj data]# touch   22222222
+[root@test-centos-6ccff47f57-qwzmj data]# touch   test
+[root@test-centos-6ccff47f57-qwzmj data]# ls -al
+total 1
+drwxr-xr-x 3 root root  0 Nov  2 06:56 .
+drwxr-xr-x 1 root root 41 Nov  2 06:34 ..
+-rw-r--r-- 1 root root  0 Nov  2 06:35 20200414
+drwxr-xr-x 2 root root  0 Nov  2 06:56 20211102
+-rw-r--r-- 1 root root  0 Nov  2 06:49 22222222
+-rw-r--r-- 1 root root  0 Nov  2 06:35 test
+
+
+
+#####查看pod数据内容：进入ceph的节点node-1，也就是mon-1:
+[root@node-1 test-pv]# df -h|grep ceph
+ceph-fuse                 18G     0   18G   0% /var/lib/kubelet/pods/9921f3c3-8ae8-4bd2-9987-71461bdb4c8e/volumes/kubernetes.io~cephfs/test-pv
+[root@node-1 test-pv]# cd  /var/lib/kubelet/pods/9921f3c3-8ae8-4bd2-9987-71461bdb4c8e/volumes/kubernetes.io~cephfs/test-pv
+[root@node-1 test-pv]# ll 
+total 1
+-rw-r--r-- 1 root root 0 Nov  2 14:35 20200414
+drwxr-xr-x 2 root root 0 Nov  2 14:56 20211102
+-rw-r--r-- 1 root root 0 Nov  2 14:49 22222222
+-rw-r--r-- 1 root root 0 Nov  2 14:35 test
+[root@node-1 test-pv]# 
+
+
+
+#####挂载到本地ceph目录,查看内部数据内容：
+[root@master-1 ceph]# cat ceph.client.admin.keyring
+[client.admin]
+        key = AQBrooBhaVHMCRAAP8rfyWAUaXVC3BVyi8kMXQ==
+        caps mds = "allow *"
+        caps mgr = "allow *"
+        caps mon = "allow *"
+        caps osd = "allow *"
+[root@master-1 ceph]# 
+
+挂载ceph目录：
+[root@master-1 ceph]# mkdir /ceph
+[root@master-1 ceph]# mount -t ceph 172.16.201.135:6789:/ /ceph  -o name=admin,secret=AQBrooBhaVHMCRAAP8rfyWAUaXVC3BVyi8kMXQ==
+
+查看内容：东西都在：
+[root@master-1 ceph]# ll
+total 0
+-rw-r--r-- 1 root root 0 Nov  2 14:35 20200414
+drwxr-xr-x 1 root root 0 Nov  2 14:56 20211102
+-rw-r--r-- 1 root root 0 Nov  2 14:49 22222222
+-rw-r--r-- 1 root root 0 Nov  2 14:35 test
+[root@master-1 ceph]# 
+
+
+其他机器如果想挂此数据盘（未测试）
+linux挂载：
+安装挂载工具：ceph-fuse ceph
+yum -y install ceph-fuse ceph
+ssh root@node1 "ceph-authtool -p /etc/ceph/ceph.client.admin.keyring" > admin.key
+chmod 600 admin.key
+mount -t ceph node1:6789:/ /mnt -o name=admin,secretfile=admin.key
+df -hT
+
+windows挂载：
+https://github.com/ksingh7/ceph-cookbook/tree/master/ceph-dokan
+dokaninstall.exe
+
+
+
+#动态持久化存储StorageClass
+我们学习了 PV 和 PVC 的使用方法，但是前面的 PV 都是静态的，什么意思？就是我要使用的一个 PVC 的话就必须手动去创建一个 PV，我们也说过这种方式在很大程度上并不能满足我们的需求，比如我们有一个应用需要对存储的并发度要求比较高，而另外一个应用对读写速度又要求比较高，特别是对于 StatefulSet 类型的应用简单的来使用静态的 PV 就很不合适了，这种情况下我们就需要用到动态 PV，也就是我们今天要讲解的 StorageClass。
+
+而 StorageClass 对象的作用，其实就是创建 PV 的模板。具体地说，StorageClass 对象会定义如下两个部分内容：
+第一，PV 的属性。比如，存储类型、Volume 的大小等等。
+第二，创建这种 PV 需要用到的存储插件。比如，Ceph 等等。
+
+
+静态pod是kubelet直接启动的pod k8s的系统pod就是静态pod
+动态pod是apiserver控制下启动的pod
+
+
+###PersistentVolumeClaim 3大要素：
+######1、storageclass
+[root@master storage]# cat storageclass-nfs.yaml
+apiVersion: storage.k8s.io/v1beta1
+kind: StorageClass
+metadata:
+  name: managed-nfs-storage
+provisioner: fuseim.pri/ifs
+
+######2、rbac授权相关kind
+[root@master storage]# cat rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfs-client-provisioner
+
+---
+
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: nfs-client-provisioner-runner
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list", "watch", "create", "update", "patch"]
+
+---
+
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: run-nfs-client-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: nfs-client-provisioner
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: nfs-client-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+
+
+######3、部署一个自动创建pv的服务
+自动创建pv的服务由nfs-client-provisioner 完成
+
+[root@master storage]# cat deployment-nfs.yaml
+kind: Deployment
+apiVersion: extensions/v1beta1
+metadata:
+  name: nfs-client-provisioner
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: nfs-client-provisioner
+    spec:
+    #  imagePullSecrets:
+    #    - name: registry-pull-secret
+      serviceAccount: nfs-client-provisioner
+      containers:
+        - name: nfs-client-provisioner
+          #image: quay.io/external_storage/nfs-client-provisioner:latest
+          image: lizhenliang/nfs-client-provisioner:v2.0.0
+          volumeMounts:
+            - name: nfs-client-root
+              mountPath: /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              #这个值是定义storage里面的那个值
+              value: fuseim.pri/ifs
+            - name: NFS_SERVER
+              value: 192.168.1.39
+            - name: NFS_PATH
+              value: /opt/container_data
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server: 192.168.1.39
+            path: /opt/container_data
+
+######4、创建
+kubectl apply -f storageclass-nfs.yaml
+kubectl apply -f rbac.yaml
+kubectl apply -f deployment-nfs.yaml
+
+######5、查看创建好的storage
+[root@master storage]# kubectl get sc
+NAME                  PROVISIONER      AGE
+managed-nfs-storage   fuseim.pri/ifs   11h
+
+nfs-client-provisioner 会以pod运行在k8s中
+[root@master storage]# kubectl get pod
+NAME                                      READY   STATUS    RESTARTS   AGE
+nfs-client-provisioner-855887f688-hrdwj   1/1     Running   0          10h
+
+
+######6、部署有状态服务，测试自动创建pv
+[root@master ~]# cat nginx.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  ports:
+  - port: 80
+    name: web
+  clusterIP: None
+  selector:
+    app: nginx
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: web
+spec:
+  serviceName: "nginx"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - containerPort: 80
+          name: web
+        volumeMounts:
+        - name: www
+          mountPath: /usr/share/nginx/html
+  volumeClaimTemplates:
+  - metadata:
+      name: www
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "managed-nfs-storage"
+      resources:
+        requests:
+          storage: 1Gi
+
+创建：
+[root@master ~]# kubectl apply -f nginx.yaml
+
+进入其中一个容器，创建一个文件
+[root@master ~]# kubectl exec -it web-0 bash
+bash# cd /usr/share/nginx/html
+bash# touch 1.txt
+
+进入nfs数据目录：
+此处可见到，nfs下面自动创建了三个有标识的数据卷文件夹。
+查看web-0数据卷，是否有刚刚创建的1.txt
+[root@master container_data]# ls default-www-web-0-pvc-2b7c8ce1-13b6-11e9-b1a2-0262b716c880/
+1.txt
+
+现在我们可以将web-0这个pod删掉，测试数据卷里面的文件会不会消失。
+[root@master ~]# kubectl delete pod web-0
+pod "web-0" deleted
+
+经过测试我们可以得到，删掉这个pod以后，又会迅速再拉起一个web-0,并且数据不会丢失，这样我们也就达到了动态的数据持久化。
