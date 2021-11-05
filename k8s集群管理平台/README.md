@@ -8,6 +8,7 @@ https://docs.openshift.com/
 https://kubesphere.com.cn/
 
 ## rancher
+https://github.com/rancher/rancher#installation
 https://rancher.com/docs/rancher/v1.6/zh/
 
 
