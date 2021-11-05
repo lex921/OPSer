@@ -1,4 +1,16 @@
-# kubesphere openshift rancher相关    
+# kubesphere openshift rancher 相关  
+
+## openshift
+https://www.redhat.com/en/technologies/cloud-computing/openshift
+https://docs.openshift.com/
+
+## kubesphere
+https://kubesphere.com.cn/
+
+## rancher
+https://rancher.com/docs/rancher/v1.6/zh/
+
+
 ###  优点    
 贴近原生K8S，运维人员无需学习新东西，kubesphere更像是k8s的前端。  
 图形化强，直观，美观，赏心悦目    
