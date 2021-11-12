@@ -1,0 +1,28 @@
+apiVersion: extensions/v1beta1 
+kind: Ingress 
+metadata:
+  name: myclusteringress
+  namespace: mycluster
+spec:
+  rules:
+    - host: k8s.grafana.com
+      http:
+        paths: 
+          - path: /
+            backend:
+              serviceName: myclustertidbmon-grafana
+              servicePort: 3000
+    - host: k8s.tidb.com
+      http:
+        paths: 
+          - path: /dashboard
+            backend:
+              serviceName: mycluster-discovery-66899c8ff6-59qxx
+              servicePort: 10262
+    - host: k8s.prometheus.com
+      http:
+        paths: 
+          - path: /
+            backend:
+              serviceName: myclustertidbmon-prometheus
+              servicePort: 9090

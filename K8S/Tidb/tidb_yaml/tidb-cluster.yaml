@@ -1,0 +1,72 @@
+apiVersion: pingcap.com/v1alpha1
+kind: TidbCluster
+metadata:
+  name: mycluster
+  namespace: mycluster
+ 
+spec:
+  version: "v4.0.8"
+  timezone: UTC
+  configUpdateStrategy: RollingUpdate
+  hostNetwork: false
+  imagePullPolicy: IfNotPresent
+  helper:
+    image: busybox:1.26.2
+  enableDynamicConfiguration: true
+ 
+  pd:
+    enableDashboardInternalProxy: true
+    baseImage: pingcap/pd
+    config: {}
+    replicas: 3
+    requests:
+      cpu: "100m"
+      storage: 1Gi
+    mountClusterClientSecret: false
+    storageClassName: "local-storage"
+ 
+  tidb:
+    baseImage: pingcap/tidb
+    replicas: 3
+    requests:
+      cpu: "100m"
+    config: {}
+    service:
+      type: NodePort
+      externalTrafficPolicy: Cluster
+      mysqlNodePort: 30011
+      statusNodePort: 30012
+ 
+  tikv:
+    baseImage: pingcap/tikv
+    config: {}
+    replicas: 2
+    requests:
+      cpu: "100m"
+      storage: 1Gi
+    mountClusterClientSecret: false
+    storageClassName: "local-storage"
+ 
+  
+
+  pump:
+    baseImage: pingcap/tidb-binlog
+    replicas: 1
+    storageClassName: local-storage
+    requests:
+      storage: 1Gi
+    schedulerName: default-scheduler
+    config:
+      addr: 0.0.0.0:8250
+      gc: 7
+      heartbeat-interval: 2
+ 
+  ticdc:
+    baseImage: pingcap/ticdc
+    replicas: 3
+    config:
+      logLevel: info
+ 
+  enablePVReclaim: false
+  pvReclaimPolicy: Retain
+  tlsCluster: {}

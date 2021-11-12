@@ -1,0 +1,14 @@
+---
+apiVersion: pingcap.com/v1alpha1
+kind: TidbInitializer
+metadata:
+  name: mycluster
+  namespace: mycluster
+spec:
+  image: tnir/mysqlclient
+  cluster:
+    namespace: tidb
+    name: tidb
+  initSql: |-
+    create database app;
+  passwordSecret: tidb-secret
