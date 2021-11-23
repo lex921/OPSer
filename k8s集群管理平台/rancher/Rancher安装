@@ -1,0 +1,60 @@
+v1版本的dockerhub地址：
+https://hub.docker.com/r/rancher/server
+ 
+v2版本的dockerhub地址：
+https://hub.docker.com/r/rancher/rancher/
+ 
+Rancher version v2.6.2 
+
+####1、本文采用的v2版本，下载命令为：
+[root@node-1 ~]# docker pull rancher/rancher:stable
+stable: Pulling from rancher/rancher
+af637d9f9908: Pull complete 
+f9224574abce: Pull complete 
+ebae3352c76e: Pull complete 
+7b21d0842057: Pull complete 
+88a4b8d1c9ea: Pull complete 
+068e40008a4a: Pull complete 
+af8d478ed359: Pull complete 
+0570bed5c15a: Pull complete 
+f7dfd304c929: Pull complete 
+e0f5d341d113: Pull complete 
+bd89a58c597d: Pull complete 
+c03c718eef46: Pull complete 
+5e1f456cdbf8: Pull complete 
+e55dca76e75f: Pull complete 
+c9a821480bc3: Pull complete 
+c6e3491b680d: Pull complete 
+9d7c10a11f0f: Pull complete 
+Digest: sha256:51658639bf2b28f4796e7daa04b0434e29fcf69ce062bf649462be77ae76cd2c
+Status: Downloaded newer image for rancher/rancher:stable
+docker.io/rancher/rancher:stable
+[root@node-1 ~]# 
+
+####2、安装Rancher
+[root@master-1 data]# docker run --privileged -d --restart=always --name rancher -p 800:80 -p 4433:443 rancher/rancher:stable
+56e501bd15792fc5a0c0b3188a7b663a7024e0be40202403c617cd1f1ead4639
+ 
+
+####3、查看日志
+[root@master-1 data]#  docker logs -f rancher
+
+[root@master-1 data]# docker ps -a|grep rancher
+cd512a7b1500        rancher/rancher:stable                              "entrypoint.sh"          4 minutes ago       Up About a minute         0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp   rancher
+
+
+
+等待几分钟，没有日志输出了，表示已经启动好了。
+
+
+####4、访问页面
+https://172.16.201.134:4433/dashboard/auth/login
+
+注意：这里必须要用http。即使你用http访问，它还是会强制跳转到https
+第一次访问时，显示的是英文。提示默认的admin密码不安装，需要设置一个复杂性密码。
+
+
+临时密码：
+[root@master-1 harbor]# docker logs  rancher  2>&1 | grep "Bootstrap Password:"    
+2021/11/20 04:30:04 [INFO] Bootstrap Password: 2tgv68s7rn5rd8wxcbh5gm5dz5h7rxvbb68zctqnnf8flp475brg5x
+[root@master-1 harbor]# 
