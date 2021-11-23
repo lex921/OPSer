@@ -1,0 +1,515 @@
+####（二）K8S安装GitLab
+######主要步骤：
+持久化存储（本地nfs服务）
+postgres数据库
+redis缓存服务
+gitlab应用
+
+1、创建一个用于存储密码的secret文件:
+创建username和password文件:
+[root@master-1 gitlab]# echo -n "admin" > ./username
+[root@master-1 gitlab]# echo -n "1f2d1e2e67df" > ./password
+
+用kubectl生成secret对象:
+[root@master-1 gitlab]# kubectl create secret generic db-user-pass --from-file=./username --from-file=./password
+secret/db-user-pass created
+
+
+2、nfs配置
+[root@master-1 gitlab]# mkdir -p /nfs_dir/{vol1,vol2,vol3,vol4}
+[root@master-1 gitlab]# exportfs -r
+[root@master-1 gitlab]# exportfs
+/nfs_dir/vol1   172.16.201.0/24
+/nfs_dir/vol2   172.16.201.0/24
+/nfs_dir/vol3   172.16.201.0/24
+/nfs_dir/vol4   172.16.201.0/24
+
+
+mount -t nfs 172.16.201.134:/nfs_dir/vol1  /nfs_dir/vol1
+mount -t nfs 172.16.201.134:/nfs_dir/vol2  /nfs_dir/vol2
+mount -t nfs 172.16.201.134:/nfs_dir/vol3  /nfs_dir/vol3
+mount -t nfs 172.16.201.134:/nfs_dir/vol4  /nfs_dir/vol4
+
+
+[root@node-1 ~]# df -h|grep 172.16.201.134
+172.16.201.134:/nfs_dir/vol1   17G  9.6G  7.5G  57% /nfs_dir/vol1
+172.16.201.134:/nfs_dir/vol2   17G  9.6G  7.5G  57% /nfs_dir/vol2
+172.16.201.134:/nfs_dir/vol3   17G  9.6G  7.5G  57% /nfs_dir/vol3
+172.16.201.134:/nfs_dir/vol4   17G  9.6G  7.5G  57% /nfs_dir/vol4
+
+[root@node-2 ~]# df -h|grep 172.16.201.134
+172.16.201.134:/nfs_dir/vol1   17G  9.6G  7.5G  57% /nfs_dir/vol1
+172.16.201.134:/nfs_dir/vol2   17G  9.6G  7.5G  57% /nfs_dir/vol2
+172.16.201.134:/nfs_dir/vol3   17G  9.6G  7.5G  57% /nfs_dir/vol3
+172.16.201.134:/nfs_dir/vol4   17G  9.6G  7.5G  57% /nfs_dir/vol4
+
+
+3、创建PV资源
+[root@master-1 gitlab]# vim nfs-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv001
+  labels:
+    name: pv001
+spec:
+  nfs:
+    path: /nfs_dir/vol1
+    server: 172.16.201.134
+  accessModes: ["ReadWriteMany","ReadWriteOnce"]
+  capacity:
+    storage: 1Gi
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv002
+  labels:
+    name: pv002
+spec:
+  nfs:
+    path: /nfs_dir/vol2
+    server: 172.16.201.134
+  accessModes: ["ReadWriteMany","ReadWriteOnce"]
+  capacity:
+    storage: 1Gi
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv003
+  labels:
+    name: pv003
+spec:
+  nfs:
+    path: /nfs_dir/vol3
+    server: 172.16.201.134
+  accessModes: ["ReadWriteMany","ReadWriteOnce"]
+  capacity:
+    storage: 1Gi
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv004
+  labels:
+    name: pv004
+spec:
+  nfs:
+    path: /nfs_dir/vol4
+    server: 172.16.201.134
+  accessModes: ["ReadWriteMany","ReadWriteOnce"]
+  capacity:
+    storage: 1Gi
+
+[root@master-1 gitlab]# kubectl apply -f nfs-pv.yaml
+persistentvolume/pv001 created
+persistentvolume/pv002 created
+persistentvolume/pv003 created
+persistentvolume/pv004 created
+[root@master-1 gitlab]# kubectl get pv
+NAME    CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM   STORAGECLASS   REASON   AGE
+pv001   1Gi        RWO,RWX        Retain           Available                                   3s
+pv002   1Gi        RWO,RWX        Retain           Available                                   3s
+pv003   1Gi        RWO,RWX        Retain           Available                                   3s
+pv004   1Gi        RWO,RWX        Retain           Available                                   3s
+[root@master-1 gitlab]# 
+
+4、部署Postgresql数据库，准备PostgreSQL数据库PVC
+[root@master-1 gitlab]# vim gitlab-postgresql-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitlab-postgresql-pvc
+  namespace: default
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 1Gi
+
+[root@master-1 gitlab]# kubectl apply -f gitlab-postgresql-pvc.yaml
+persistentvolumeclaim/gitlab-postgresql-pvc created
+
+[root@master-1 gitlab]# kubectl get pvc
+NAME                    STATUS   VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+gitlab-postgresql-pvc   Bound    pv001    1Gi        RWO,RWX                       12s
+
+
+5、部署PostgresSQL数据库实例及Service资源
+[root@master-1 gitlab]# vim postgresql-Deployment-Service.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: default
+  labels:
+    name: postgresql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: postgresql
+  template:
+    metadata:
+      name: postgresql
+      labels:
+        name: postgresql
+    spec:
+      containers:
+      - name: postgresql
+        image: sameersbn/postgresql
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: DB_USER
+          value: gitlab
+        - name: DB_PASS
+          value: passw0rd
+        - name: DB_NAME
+          value: gitlab_production
+        - name: DB_EXTENSION
+          value: pg_trgm
+        ports:
+        - name: postgres
+          containerPort: 5432
+        volumeMounts:
+        - mountPath: /var/lib/postgresql
+          name: data
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -h
+            - localhost
+            - -U
+            - postgres
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -h
+            - localhost
+            - -U
+            - postgres
+          initialDelaySeconds: 5
+          timeoutSeconds: 1
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: gitlab-postgresql-pvc
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql
+  namespace: default
+  labels:
+    name: postgresql
+spec:
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  selector:
+    name: postgresql
+
+[root@master-1 gitlab]# kubectl apply -f postgresql-Deployment-Service.yaml
+deployment.apps/postgresql created
+[root@master-1 gitlab]# kubectl get pod -o wide  
+NAME                          READY   STATUS    RESTARTS   AGE   IP           NODE     NOMINATED NODE   READINESS GATES
+postgresql-67cb84d6f8-cppqg   0/1     Running   0          81s   10.244.2.2   node-2   <none>           <none>
+
+
+6、部署redis缓存数据库
+
+[root@master-1 gitlab]# vim redis-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitlab-redis-pvc
+  namespace: default
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 1Gi
+
+[root@master-1 gitlab]# kubectl apply -f redis-pvc.yaml
+persistentvolumeclaim/gitlab-redis-pvc created
+[root@master-1 gitlab]# kubectl get pvc -o wide
+NAME                    STATUS   VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE   VOLUMEMODE
+gitlab-postgresql-pvc   Bound    pv001    1Gi        RWO,RWX                       21m   Filesystem
+gitlab-redis-pvc        Bound    pv002    1Gi        RWO,RWX                       18s   Filesystem
+[root@master-1 gitlab]# 
+
+[root@master-1 gitlab]# vim redis-Deployment-Service.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: default
+  labels:
+    name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: redis
+  template:
+    metadata:
+      name: redis
+      labels:
+        name: redis
+    spec:
+      containers:
+      - name: redis
+        image: sameersbn/redis
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: redis
+          containerPort: 6379
+        volumeMounts:
+        - mountPath: /var/lib/redis
+          name: data
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          timeoutSeconds: 1
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: gitlab-redis-pvc
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: default
+  labels:
+    name: redis
+spec:
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    name: redis
+
+[root@master-1 gitlab]# kubectl apply -f redis-Deployment-Service.yaml
+deployment.apps/redis created
+service/redis created
+
+[root@master-1 gitlab]# kubectl get pod -o wide
+NAME                          READY   STATUS    RESTARTS   AGE     IP           NODE     NOMINATED NODE   READINESS GATES
+postgresql-67cb84d6f8-cppqg   1/1     Running   0          9m37s   10.244.2.2   node-2   <none>           <none>
+redis-f68fd858-bzc4s          0/1     Running   0          34s     10.244.1.3   node-1   <none>           <none>
+
+
+
+7、部署gitlab服务
+[root@master-1 gitlab]# vim gitlab-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitlab-pvc
+  namespace: default
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 1Gi
+
+
+[root@master-1 gitlab]# kubectl apply -f gitlab-pvc.yaml
+persistentvolumeclaim/gitlab-pvc created
+
+[root@master-1 gitlab]# kubectl get pvc -o wide
+NAME                    STATUS   VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE     VOLUMEMODE
+gitlab-postgresql-pvc   Bound    pv001    1Gi        RWO,RWX                       29m     Filesystem
+gitlab-pvc              Bound    pv003    1Gi        RWO,RWX                       15s     Filesystem
+gitlab-redis-pvc        Bound    pv002    1Gi        RWO,RWX                       8m35s   Filesystem
+
+
+
+8、添加secret资源配置root密码
+echo -n "admin" > ./username
+echo -n "admin123" > ./password
+kubectl create secret generic db-user-pass --from-file=./username --from-file=./password
+
+
+[root@master-1 gitlab]# kubectl get secret
+NAME                  TYPE                                  DATA   AGE
+db-user-pass          Opaque                                2      1s
+default-token-q94x6   kubernetes.io/service-account-token   3      27h
+
+
+
+9、gitlab实例及Service部署
+
+[root@master-1 gitlab]# vim gitlab-Deployment-Service.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab
+  namespace: default
+  labels:
+    name: gitlab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: gitlab
+  template:
+    metadata:
+      name: gitlab
+      labels:
+        name: gitlab
+    spec:
+      containers:
+      - name: gitlab
+        image: sameersbn/gitlab:12.1.6
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: TZ
+          value: Asia/Shanghai
+        - name: GITLAB_TIMEZONE
+          value: Beijing
+        - name: GITLAB_SECRETS_DB_KEY_BASE
+          value: long-and-random-alpha-numeric-string
+        - name: GITLAB_SECRETS_SECRET_KEY_BASE
+          value: long-and-random-alpha-numeric-string
+        - name: GITLAB_SECRETS_OTP_KEY_BASE
+          value: long-and-random-alpha-numeric-string
+        - name: GITLAB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-user-pass
+              key: password
+        - name: GITLAB_ROOT_EMAIL
+          value: 1689991551@qq.com
+        - name: GITLAB_HOST
+          value: gitlab.jzh.com
+        - name: GITLAB_PORT
+          value: "80"
+        - name: GITLAB_SSH_PORT
+          value: "30022"
+        - name: GITLAB_NOTIFY_ON_BROKEN_BUILDS
+          value: "true"
+        - name: GITLAB_NOTIFY_PUSHER
+          value: "false"
+        - name: GITLAB_BACKUP_SCHEDULE
+          value: daily
+        - name: GITLAB_BACKUP_TIME
+          value: 01:00
+        - name: DB_TYPE
+          value: postgres
+        - name: DB_HOST
+          value: postgresql
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_USER
+          value: gitlab
+        - name: DB_PASS
+          value: passw0rd
+        - name: DB_NAME
+          value: gitlab_production
+        - name: REDIS_HOST
+          value: redis
+        - name: REDIS_PORT
+          value: "6379"
+        ports:
+        - name: http
+          containerPort: 80
+        - name: ssh
+          containerPort: 22
+        volumeMounts:
+        - mountPath: /home/git/data
+          name: data
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 180
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          timeoutSeconds: 1
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: gitlab-pvc
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab
+  namespace: default
+  labels:
+    name: gitlab
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    - name: ssh
+      port: 22
+      targetPort: ssh
+      nodePort: 30022
+  type: NodePort
+  selector:
+    name: gitlab
+
+[root@master-1 gitlab]# kubectl apply -f gitlab-Deployment-Service.yaml
+deployment.apps/gitlab created
+service/gitlab created
+
+[root@master-1 gitlab]# kubectl get pod -o wide 
+NAME                          READY   STATUS    RESTARTS   AGE   IP           NODE     NOMINATED NODE   READINESS GATES
+gitlab-6dd65b86ff-2zt57       1/1     Running   1          11m   10.244.2.3   node-2   <none>           <none>
+postgresql-67cb84d6f8-cppqg   1/1     Running   0          29m   10.244.2.2   node-2   <none>           <none>
+redis-f68fd858-bzc4s          1/1     Running   0          20m   10.244.1.3   node-1   <none>           <none>
+
+[root@master-1 gitlab]#  kubectl get svc -o wide  
+NAME         TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                     AGE   SELECTOR
+gitlab       NodePort    10.1.0.128     <none>        80:31746/TCP,22:30022/TCP   12m   name=gitlab
+kubernetes   ClusterIP   10.1.0.1       <none>        443/TCP                     28h   <none>
+postgresql   ClusterIP   10.1.16.2      <none>        5432/TCP                    31m   name=postgresql
+redis        ClusterIP   10.1.220.213   <none>        6379/TCP                    21m   name=redis
+
+
+[root@master-1 gitlab]# netstat -antup|grep 31746
+tcp        0      0 0.0.0.0:31746           0.0.0.0:*               LISTEN      9750/kube-proxy     
+[root@master-1 gitlab]# netstat -antup|grep 30022
+tcp        0      0 0.0.0.0:30022           0.0.0.0:*               LISTEN      9750/kube-proxy     
+[root@master-1 gitlab]# 
+
+
+10、通过IP:Port访问Gitlab服务，用户名 root，密码 admin123
+http://172.16.201.134:31746/users/sign_in
