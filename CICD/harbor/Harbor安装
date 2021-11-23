@@ -1,0 +1,340 @@
+###一、下载harbor二进制文件
+下载harbor二进制文件：https://github.com/goharbor/harbor/releases
+
+###二、安装 docker compose
+[root@master-1 ~]# curl -L https://github.com/docker/compose/releases/download/1.22.0/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   633  100   633    0     0    176      0  0:00:03  0:00:03 --:--:--   176
+100 11.2M  100 11.2M    0     0   621k      0  0:00:18  0:00:18 --:--:-- 1169k
+
+然后把下载的docker-compose 设置可执行权限
+[root@master-1 ~]# chmod +x /usr/local/bin/docker-compose
+[root@master-1 ~]# docker-compose version
+docker-compose version 1.22.0, build f46880fe
+docker-py version: 3.4.1
+CPython version: 3.6.6
+OpenSSL version: OpenSSL 1.1.0f  25 May 2017
+[root@master-1 ~]# 
+
+
+###三、设置自签证书的
+[root@master-1 ssl]# openssl req -x509 -sha256 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/CN=nginxsvc/O=nginxsvc"
+Generating a 2048 bit RSA private key
+.....................................................+++
+..............+++
+writing new private key to 'tls.key'
+-----
+[root@master-1 ssl]# ll
+total 8
+lrwxrwxrwx. 1 root root   16 Nov 19 18:02 certs -> ../pki/tls/certs
+-rw-r--r--  1 root root 1143 Nov 20 11:49 tls.crt
+-rw-r--r--  1 root root 1704 Nov 20 11:49 tls.key
+[root@master-1 ssl]# pwd
+/etc/ssl
+
+###四、Harbor2.3.0二进制包上传到服务器，解压
+lex@lexliudeMacBook-Pro Downloads %  scp harbor-offline-installer-v2.3.4.tgz root@172.16.201.134:/root/
+The authenticity of host '172.16.201.134 (172.16.201.134)' can't be established.
+ECDSA key fingerprint is SHA256:HtE35snzTJJeXnx+Y4cDhCZ30O2/TuhmRGu422FAx/c.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '172.16.201.134' (ECDSA) to the list of known hosts.
+root@172.16.201.134's password: 
+harbor-offline-installer-v2.3.4.tgz                                                100%  579MB  17.4MB/s   00:33    
+lex@lexliudeMacBook-Pro Downloads %  
+
+[root@master-1 ~]# tar -xvf harbor-offline-installer-v2.3.4.tgz
+[root@master-1 ~]# cd harbor
+
+###五、修改配置文件：
+[root@master-1 harbor]# mv harbor.yml.tmp harbor.yml
+[root@master-1 harbor]# vim harbor.yml
+[root@master-1 harbor]# cat harbor.yml |grep -v "#"
+
+hostname: 172.16.201.134
+
+http:
+  port: 80
+
+https:
+  port: 443
+  certificate: /etc/ssl/tls.crt
+  private_key: /etc/ssl/tls.key
+
+harbor_admin_password: Harbor12345
+
+database:
+  password: root123
+  max_idle_conns: 100
+  max_open_conns: 900
+
+data_volume: /data
+
+trivy:
+  ignore_unfixed: false
+  skip_update: false
+  insecure: false
+
+jobservice:
+  max_job_workers: 10
+
+notification:
+  webhook_job_max_retry: 10
+
+chart:
+  absolute_url: disabled
+
+log:
+  level: info
+  local:
+    rotate_count: 50
+    rotate_size: 200M
+    location: /var/log/harbor
+
+
+_version: 2.3.0
+proxy:
+  http_proxy:
+  https_proxy:
+  no_proxy:
+  components:
+    - core
+    - jobservice
+    - trivy
+
+[root@master-1 harbor]# 
+
+
+###六、在当前文件夹中开启harbor
+####1、准备
+[root@master-1 harbor]# ./prepare
+prepare base dir is set to /root/cicd/harbor
+Unable to find image 'goharbor/prepare:v2.3.4' locally
+v2.3.4: Pulling from goharbor/prepare
+c931d4b85338: Pull complete 
+99e0f8e91189: Pull complete 
+232a147744dc: Pull complete 
+10882d0cd853: Pull complete 
+5612f307eae2: Pull complete 
+8e53db3b18bb: Pull complete 
+1696a17c367c: Pull complete 
+547e86f041f4: Pull complete 
+Digest: sha256:c5c93fca8cc7766159ccdaff7c4fcac62503304d411914381928c1bc43d19df4
+Status: Downloaded newer image for goharbor/prepare:v2.3.4
+Generated configuration file: /config/portal/nginx.conf
+Generated configuration file: /config/log/logrotate.conf
+Generated configuration file: /config/log/rsyslog_docker.conf
+Generated configuration file: /config/nginx/nginx.conf
+Generated configuration file: /config/core/env
+Generated configuration file: /config/core/app.conf
+Generated configuration file: /config/registry/config.yml
+Generated configuration file: /config/registryctl/env
+Generated configuration file: /config/registryctl/config.yml
+Generated configuration file: /config/db/env
+Generated configuration file: /config/jobservice/env
+Generated configuration file: /config/jobservice/config.yml
+Generated and saved secret to file: /data/secret/keys/secretkey
+Successfully called func: create_root_cert
+Generated configuration file: /compose_location/docker-compose.yml
+Clean up the input dir
+[root@master-1 harbor]# 
+
+
+####2、安装  (运行此处的时候需要一定的时间，请等待吧)：
+[root@master-1 harbor]# ./install.sh 
+[Step 0]: checking if docker is installed ...
+Note: docker version: 19.03.13
+[Step 1]: checking docker-compose is installed ...
+Note: docker-compose version: 1.22.0
+[Step 2]: loading Harbor images ...
+bab588f83459: Loading layer [==================================================>]   8.75MB/8.75MB
+5f0fc8804b08: Loading layer [==================================================>]  11.64MB/11.64MB
+c28f2daf5359: Loading layer [==================================================>]  1.688MB/1.688MB
+Loaded image: goharbor/harbor-portal:v2.3.4
+e1768f3b0fc8: Loading layer [==================================================>]   8.75MB/8.75MB
+Loaded image: goharbor/nginx-photon:v2.3.4
+80c494db90e8: Loading layer [==================================================>]   6.82MB/6.82MB
+f7c774b190f5: Loading layer [==================================================>]  6.219MB/6.219MB
+3f9238d93e31: Loading layer [==================================================>]  15.88MB/15.88MB
+357454838775: Loading layer [==================================================>]  29.29MB/29.29MB
+bbdcee8bdadb: Loading layer [==================================================>]  22.02kB/22.02kB
+ac89f4dce657: Loading layer [==================================================>]  15.88MB/15.88MB
+Loaded image: goharbor/notary-server-photon:v2.3.4
+305b24ea374e: Loading layer [==================================================>]  7.363MB/7.363MB
+55dcab863ae7: Loading layer [==================================================>]  4.096kB/4.096kB
+4832b43b9049: Loading layer [==================================================>]  3.072kB/3.072kB
+c5065fd5a724: Loading layer [==================================================>]  31.52MB/31.52MB
+c1732b627bc6: Loading layer [==================================================>]  11.39MB/11.39MB
+84e3371d6d71: Loading layer [==================================================>]   43.7MB/43.7MB
+Loaded image: goharbor/trivy-adapter-photon:v2.3.4
+0bda5dd4507f: Loading layer [==================================================>]  9.918MB/9.918MB
+9b8b0a75131b: Loading layer [==================================================>]  3.584kB/3.584kB
+8a27a2e44308: Loading layer [==================================================>]   2.56kB/2.56kB
+c2d79ade2e58: Loading layer [==================================================>]  73.36MB/73.36MB
+a7efb206c673: Loading layer [==================================================>]  5.632kB/5.632kB
+a0151a9b651b: Loading layer [==================================================>]  94.72kB/94.72kB
+077455b7a6e9: Loading layer [==================================================>]  11.78kB/11.78kB
+77235bb05a07: Loading layer [==================================================>]  74.26MB/74.26MB
+d55c045b5185: Loading layer [==================================================>]   2.56kB/2.56kB
+Loaded image: goharbor/harbor-core:v2.3.4
+1dcd2f87d99c: Loading layer [==================================================>]  1.096MB/1.096MB
+5991768c62a8: Loading layer [==================================================>]  5.888MB/5.888MB
+4cbb6847a67d: Loading layer [==================================================>]  173.7MB/173.7MB
+437252ecb71f: Loading layer [==================================================>]  15.73MB/15.73MB
+324517377bf0: Loading layer [==================================================>]  4.096kB/4.096kB
+4697090444de: Loading layer [==================================================>]  6.144kB/6.144kB
+19cb7f4e8295: Loading layer [==================================================>]  3.072kB/3.072kB
+eb573ba4e927: Loading layer [==================================================>]  2.048kB/2.048kB
+a30648a5fa3e: Loading layer [==================================================>]   2.56kB/2.56kB
+65ab99d7c381: Loading layer [==================================================>]   2.56kB/2.56kB
+9395849bf38f: Loading layer [==================================================>]   2.56kB/2.56kB
+23a2711d2570: Loading layer [==================================================>]  8.704kB/8.704kB
+Loaded image: goharbor/harbor-db:v2.3.4
+2fcbfe43743b: Loading layer [==================================================>]  9.918MB/9.918MB
+71f1cf1a21e7: Loading layer [==================================================>]  3.584kB/3.584kB
+a5fd6aea12f3: Loading layer [==================================================>]   2.56kB/2.56kB
+5d286dafbc99: Loading layer [==================================================>]  82.47MB/82.47MB
+421d40a4b24e: Loading layer [==================================================>]  83.27MB/83.27MB
+Loaded image: goharbor/harbor-jobservice:v2.3.4
+a95079faecd9: Loading layer [==================================================>]  6.825MB/6.825MB
+baf6f07b0d35: Loading layer [==================================================>]  4.096kB/4.096kB
+5021c842bb8d: Loading layer [==================================================>]  3.072kB/3.072kB
+964d95b989da: Loading layer [==================================================>]  19.02MB/19.02MB
+f75de434d758: Loading layer [==================================================>]  19.81MB/19.81MB
+Loaded image: goharbor/registry-photon:v2.3.4
+Loaded image: goharbor/prepare:v2.3.4
+b370aa55f6bb: Loading layer [==================================================>]  6.825MB/6.825MB
+c40e1854804c: Loading layer [==================================================>]  4.096kB/4.096kB
+62c713c68f94: Loading layer [==================================================>]  19.02MB/19.02MB
+067cb9d13dc2: Loading layer [==================================================>]  3.072kB/3.072kB
+da711fd41a09: Loading layer [==================================================>]  25.43MB/25.43MB
+61af5bc5684d: Loading layer [==================================================>]  45.24MB/45.24MB
+Loaded image: goharbor/harbor-registryctl:v2.3.4
+1fce02e2f0b2: Loading layer [==================================================>]  9.918MB/9.918MB
+90182ef8d6af: Loading layer [==================================================>]  17.71MB/17.71MB
+30cf2783eb4e: Loading layer [==================================================>]  4.608kB/4.608kB
+c8fa87f0c432: Loading layer [==================================================>]   18.5MB/18.5MB
+Loaded image: goharbor/harbor-exporter:v2.3.4
+1bbdf18315cc: Loading layer [==================================================>]   6.82MB/6.82MB
+332423af2705: Loading layer [==================================================>]  6.219MB/6.219MB
+a2024685b4fa: Loading layer [==================================================>]  14.47MB/14.47MB
+a04184f058e2: Loading layer [==================================================>]  29.29MB/29.29MB
+8fec5d89081c: Loading layer [==================================================>]  22.02kB/22.02kB
+da3e11c34f87: Loading layer [==================================================>]  14.47MB/14.47MB
+Loaded image: goharbor/notary-signer-photon:v2.3.4
+01d27e9ffb2b: Loading layer [==================================================>]  125.5MB/125.5MB
+dc823a6e78ed: Loading layer [==================================================>]  3.584kB/3.584kB
+65b4a979ece5: Loading layer [==================================================>]  3.072kB/3.072kB
+bd00d96da856: Loading layer [==================================================>]   2.56kB/2.56kB
+5270920b2bb1: Loading layer [==================================================>]  3.072kB/3.072kB
+9c736a3f305b: Loading layer [==================================================>]  3.584kB/3.584kB
+e3053dfef34c: Loading layer [==================================================>]  19.97kB/19.97kB
+Loaded image: goharbor/harbor-log:v2.3.4
+56dfaad4f3ae: Loading layer [==================================================>]  121.4MB/121.4MB
+1e54038c4760: Loading layer [==================================================>]  3.072kB/3.072kB
+3283554b0538: Loading layer [==================================================>]   59.9kB/59.9kB
+607e2816db21: Loading layer [==================================================>]  61.95kB/61.95kB
+Loaded image: goharbor/redis-photon:v2.3.4
+a18bcd8df6d3: Loading layer [==================================================>]  6.824MB/6.824MB
+0dcfc4641990: Loading layer [==================================================>]  67.47MB/67.47MB
+88be11c9e4c9: Loading layer [==================================================>]  3.072kB/3.072kB
+3a99925cf064: Loading layer [==================================================>]  4.096kB/4.096kB
+a426fee0fb8a: Loading layer [==================================================>]  68.26MB/68.26MB
+Loaded image: goharbor/chartmuseum-photon:v2.3.4
+
+[Step 3]: preparing environment ...
+[Step 4]: preparing harbor configs ...
+prepare base dir is set to /root/cicd/harbor
+Clearing the configuration file: /config/portal/nginx.conf
+Clearing the configuration file: /config/log/logrotate.conf
+Clearing the configuration file: /config/log/rsyslog_docker.conf
+Clearing the configuration file: /config/nginx/nginx.conf
+Clearing the configuration file: /config/core/env
+Clearing the configuration file: /config/core/app.conf
+Clearing the configuration file: /config/registry/passwd
+Clearing the configuration file: /config/registry/config.yml
+Clearing the configuration file: /config/registryctl/env
+Clearing the configuration file: /config/registryctl/config.yml
+Clearing the configuration file: /config/db/env
+Clearing the configuration file: /config/jobservice/env
+Clearing the configuration file: /config/jobservice/config.yml
+Generated configuration file: /config/portal/nginx.conf
+Generated configuration file: /config/log/logrotate.conf
+Generated configuration file: /config/log/rsyslog_docker.conf
+Generated configuration file: /config/nginx/nginx.conf
+Generated configuration file: /config/core/env
+Generated configuration file: /config/core/app.conf
+Generated configuration file: /config/registry/config.yml
+Generated configuration file: /config/registryctl/env
+Generated configuration file: /config/registryctl/config.yml
+Generated configuration file: /config/db/env
+Generated configuration file: /config/jobservice/env
+Generated configuration file: /config/jobservice/config.yml
+loaded secret from file: /data/secret/keys/secretkey
+Generated configuration file: /compose_location/docker-compose.yml
+Clean up the input dir
+
+
+
+[Step 5]: starting Harbor ...
+Creating network "harbor_harbor" with the default driver
+Creating harbor-log ... done
+Creating redis         ... done
+Creating registry      ... done
+Creating harbor-db     ... done
+Creating harbor-portal ... done
+Creating registryctl   ... done
+Creating harbor-core   ... done
+Creating nginx             ... done
+Creating harbor-jobservice ... done
+✔ ----Harbor has been installed and started successfully.----
+[root@master-1 harbor]# 
+
+
+
+
+###七、启动成功，查看一下（完美的运行）
+[root@master-1 harbor]# docker-compose ps
+      Name                     Command                  State                          Ports                   
+---------------------------------------------------------------------------------------------------------------
+harbor-core         /harbor/entrypoint.sh            Up (healthy)                                              
+harbor-db           /docker-entrypoint.sh 96 13      Up (healthy)                                              
+harbor-jobservice   /harbor/entrypoint.sh            Up (healthy)                                              
+harbor-log          /bin/sh -c /usr/local/bin/ ...   Up (healthy)   127.0.0.1:1514->10514/tcp                  
+harbor-portal       nginx -g daemon off;             Up (healthy)                                              
+nginx               nginx -g daemon off;             Up (healthy)   0.0.0.0:80->8080/tcp, 0.0.0.0:443->8443/tcp
+redis               redis-server /etc/redis.conf     Up (healthy)                                              
+registry            /home/harbor/entrypoint.sh       Up (healthy)                                              
+registryctl         /home/harbor/start.sh            Up (healthy)                                              
+[root@master-1 harbor]# 
+
+访问：
+https://172.16.201.134/
+
+
+
+
+[root@master-1 harbor]# docker-compose stop
+Stopping nginx             ... done
+Stopping harbor-jobservice ... done
+Stopping harbor-core       ... done
+Stopping harbor-portal     ... done
+Stopping registryctl       ... done
+Stopping harbor-db         ... done
+Stopping redis             ... done
+Stopping registry          ... done
+Stopping harbor-log        ... done
+[root@master-1 harbor]#
+[root@master-1 harbor]# docker-compose ps  
+      Name                     Command                State     Ports
+---------------------------------------------------------------------
+harbor-core         /harbor/entrypoint.sh            Exit 137        
+harbor-db           /docker-entrypoint.sh 96 13      Exit 0          
+harbor-jobservice   /harbor/entrypoint.sh            Exit 137        
+harbor-log          /bin/sh -c /usr/local/bin/ ...   Exit 137        
+harbor-portal       nginx -g daemon off;             Exit 0          
+nginx               nginx -g daemon off;             Exit 0          
+redis               redis-server /etc/redis.conf     Exit 0          
+registry            /home/harbor/entrypoint.sh       Exit 137        
+registryctl         /home/harbor/start.sh            Exit 137        
+[root@master-1 harbor]# 
