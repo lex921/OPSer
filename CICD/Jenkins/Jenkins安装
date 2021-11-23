@@ -1,0 +1,293 @@
+###十、安装Jenkins
+####1、nfs配置
+[root@master-1 jenkins]# mkdir -p /nfs/data/jenkins
+[root@master-1 jenkins]# vim /etc/exports
+/nfs/data/jenkins   172.16.201.0/24(rw,no_root_squash)
+[root@master-1 jenkins]# exportfs -r
+[root@master-1 jenkins]# exportfs
+/nfs/data/jenkins   172.16.201.0/24
+
+
+mount -t nfs 172.16.201.134:/nfs/data/jenkins  /nfs/data/jenkins
+
+[root@node-1 ~]# mkdir -p /nfs/data/jenkins
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/nfs/data/jenkins  /nfs/data/jenkins
+[root@node-1 ~]# df -h|grep jenkins
+172.16.201.134:/nfs/data/jenkins   17G  9.7G  7.4G  57% /nfs/data/jenkins
+[root@node-1 ~]# 
+
+####2、创建 Jenkins 用于存储的 PV、PVC
+创建 Kubernetes 的 PV、PVC 资源，其中 PV 用于与 NFS 关联，需要设置 NFS Server 服务器地址和挂载的路径，修改占用空间大小。而 PVC 则是与应用关联，方便应用与 NFS 绑定挂载，下面是 PV、PVC 的资源对象 yaml 文件。
+
+[root@master-1 jenkins]# vim jenkins-storage.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jenkins
+  labels:
+    app: jenkins
+spec:
+  capacity:          
+    storage: 5Gi
+  accessModes:       
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain  
+  mountOptions:
+    - hard
+    - nfsvers=4.1    
+  nfs:
+    path: /nfs/data/jenkins
+    server: 172.16.201.134
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: jenkins
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  selector:
+    matchLabels:
+      app: jenkins
+
+kubectl delete namespace mydlqcloud
+[root@master-1 jenkins]# kubectl create namespace mydlqcloud
+namespace/mydlqcloud created
+
+[root@master-1 jenkins]# kubectl apply -f jenkins-storage.yaml -n mydlqcloud
+persistentvolume/jenkins created
+persistentvolumeclaim/jenkins created
+
+
+[root@master-1 jenkins]# kubectl get pv,pvc -n mydlqcloud
+NAME                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM                           STORAGECLASS   REASON   AGE
+persistentvolume/jenkins   5Gi        RWO            Retain           Bound       mydlqcloud/jenkins                                      44s
+persistentvolume/pv001     1Gi        RWO,RWX        Retain           Bound       default/gitlab-postgresql-pvc                           2d11h
+persistentvolume/pv002     1Gi        RWO,RWX        Retain           Bound       default/gitlab-redis-pvc                                2d11h
+persistentvolume/pv003     1Gi        RWO,RWX        Retain           Bound       default/gitlab-pvc                                      2d11h
+persistentvolume/pv004     1Gi        RWO,RWX        Retain           Available                                                           2d11h
+
+NAME                            STATUS   VOLUME    CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+persistentvolumeclaim/jenkins   Bound    jenkins   5Gi        RWO                           30s
+[root@master-1 jenkins]# 
+
+
+
+
+####3、创建 ServiceAccount & ClusterRoleBinding
+Kubernetes 集群一般情况下都默认开启了 RBAC 权限，所以需要创建一个角色和服务账户，设置角色拥有一定权限，然后将角色与 ServiceAccount 绑定，最后将 ServiceAccount 与 Jenkins 绑定，这样来赋予 Jenkins 一定的权限，使其能够执行一些需要权限才能进行的操作。这里为了方便，将 cluster-admin 绑定到 ServiceAccount 来保证 Jenkins 拥有足够的权限。
+注意： 请修改下面的 Namespace 参数，改成部署的 Jenkins 所在的 Namespace。
+
+
+[root@master-1 jenkins]# vim jenkins-rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-admin
+  namespace: mydlqcloud
+  labels:
+    name: jenkins
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: jenkins-admin
+  labels:
+    name: jenkins
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-admin
+    namespace: mydlqcloud
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+
+
+[root@master-1 jenkins]# kubectl apply -f jenkins-rbac.yaml -n mydlqcloud
+serviceaccount/jenkins-admin created
+clusterrolebinding.rbac.authorization.k8s.io/jenkins-admin created
+[root@master-1 jenkins]# 
+
+[root@master-1 jenkins]# kubectl get serviceaccount,ClusterRoleBinding -n mydlqcloud|grep jenkins
+serviceaccount/jenkins-admin   1         39s
+clusterrolebinding.rbac.authorization.k8s.io/jenkins-admin  ClusterRole/cluster-admin    39s
+
+####4、创建 Service & Deployment
+在 Kubernetes 中部署服务需要部署文件，这里部署 Jenkins 需要创建 Service 与 Deployment 对象，其中两个对象需要做一些配置，如下：
+Service：Service 暴露两个接口 8080 与 50000，其中 8080 是 Jenkins API 和 UI 的端口，而 50000 则是供代理使用的端口。
+Deployment： Deployment 中，需要设置容器安全策略为 runAsUser: 0 赋予容器以 Root 权限运行，并且暴露 8080 与 50000 两个端口与 Service 对应，而且还要注意的是，还要设置上之前创建的服务账户 “jenkins-admin”。
+
+[root@master-1 jenkins]# vim jenkins-deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: jenkins
+  labels:
+    app: jenkins
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    nodePort: 32001
+  - name: jnlp
+    port: 50000
+    targetPort: 50000
+    nodePort: 32002
+  selector:
+    app: jenkins
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jenkins
+  labels:
+    app: jenkins
+spec:
+  selector:
+    matchLabels:
+      app: jenkins
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: jenkins
+    spec:
+      serviceAccountName: jenkins-admin
+      containers:
+      - name: jenkins
+        image: jenkins/jenkins:2.204.6
+        securityContext:                     
+          runAsUser: 0
+          privileged: true
+        ports:
+        - name: http
+          containerPort: 8080
+        - name: jnlp
+          containerPort: 50000
+        resources:
+          limits:
+            memory: 2Gi
+            cpu: "2000m"
+          requests:
+            memory: 2Gi
+            cpu: "2000m"
+        env:
+        - name: LIMITS_MEMORY
+          valueFrom:
+            resourceFieldRef:
+              resource: limits.memory
+              divisor: 1Mi
+        - name: "JAVA_OPTS"
+          value: " 
+                   -Xmx$(LIMITS_MEMORY)m 
+                   -XshowSettings:vm 
+                   -Dhudson.slaves.NodeProvisioner.initialDelay=0
+                   -Dhudson.slaves.NodeProvisioner.MARGIN=50
+                   -Dhudson.slaves.NodeProvisioner.MARGIN0=0.85
+                   -Duser.timezone=Asia/Shanghai
+                 "    
+        - name: "JENKINS_OPTS"
+          value: "--prefix=/jenkins"
+        volumeMounts:
+        - name: data
+          mountPath: /var/jenkins_home
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: jenkins
+
+
+[root@master-1 jenkins]# kubectl create -f jenkins-deployment.yaml -n mydlqcloud
+service/jenkins created
+deployment.apps/jenkins created
+
+[root@master-1 jenkins]# kubectl get  pod -n mydlqcloud --watch
+NAME                       READY   STATUS              RESTARTS   AGE
+jenkins-585687fb8b-dbnmc   0/1     ContainerCreating   0          19s
+
+[root@master-1 jenkins]# kubectl get  pod -n mydlqcloud 
+NAME                       READY   STATUS    RESTARTS   AGE
+jenkins-585687fb8b-dbnmc   1/1     Running   0          2m21s
+
+
+
+####5、获取 Jenkins 生成的 Token
+在安装 Jenkins 时候，它默认生成一段随机字符串在控制台日志中，用于安装时验证。这里需要获取它输出在控制台中的日志信息，来获取 Token 字符串。
+查看 Jenkins Pod 启动日志
+-n：指定应用启动的 namespace
+
+在日志中可以看到，默认给的token为：
+[root@master-1 jenkins]# kubectl logs $(kubectl get pods -n mydlqcloud | awk '{print $1}' | grep jenkins) -n mydlqcloud
+VM settings:
+    Max. Heap Size: 1.00G
+    Ergonomics Machine Class: server
+    Using VM: OpenJDK 64-Bit Server VM
+
+Running from: /usr/share/jenkins/jenkins.war
+webroot: EnvVars.masterEnvVars.get("JENKINS_HOME")
+2021-11-20 13:49:06.943+0000 [id=1]     INFO    org.eclipse.jetty.util.log.Log#initialized: Logging initialized @2098ms to org.eclipse.jetty.util.log.JavaUtilLog
+2021-11-20 13:49:07.933+0000 [id=1]     INFO    winstone.Logger#logInternal: Beginning extraction from war file
+2021-11-20 13:49:31.639+0000 [id=1]     INFO    org.eclipse.jetty.server.Server#doStart: jetty-9.4.z-SNAPSHOT; built: 2019-05-02T00:04:53.875Z; git: e1bc35120a6617ee3df052294e433f3a25ce7097; jvm 1.8.0_242-b08
+2021-11-20 13:49:34.402+0000 [id=1]     INFO    o.e.j.w.StandardDescriptorProcessor#visitServlet: NO JSP Support for /jenkins, did not find org.eclipse.jetty.jsp.JettyJspServlet
+2021-11-20 13:49:34.755+0000 [id=1]     INFO    o.e.j.s.s.DefaultSessionIdManager#doStart: DefaultSessionIdManager workerName=node0
+2021-11-20 13:49:34.756+0000 [id=1]     INFO    o.e.j.s.s.DefaultSessionIdManager#doStart: No SessionScavenger set, using defaults
+2021-11-20 13:49:34.763+0000 [id=1]     INFO    o.e.j.server.session.HouseKeeper#startScavenging: node0 Scavenging every 600000ms
+2021-11-20 13:49:37.231+0000 [id=1]     INFO    hudson.WebAppMain#contextInitialized: Jenkins home directory: /var/jenkins_home found at: EnvVars.masterEnvVars.get("JENKINS_HOME")
+2021-11-20 13:49:38.003+0000 [id=1]     INFO    o.e.j.s.handler.ContextHandler#doStart: Started w.@759fad4{Jenkins v2.204.6,/jenkins,file:///var/jenkins_home/war/,AVAILABLE}{/var/jenkins_home/war}
+2021-11-20 13:49:38.116+0000 [id=1]     INFO    o.e.j.server.AbstractConnector#doStart: Started ServerConnector@19932c16{HTTP/1.1,[http/1.1]}{0.0.0.0:8080}
+2021-11-20 13:49:38.116+0000 [id=1]     INFO    org.eclipse.jetty.server.Server#doStart: Started @33273ms
+2021-11-20 13:49:38.121+0000 [id=20]    INFO    winstone.Logger#logInternal: Winstone Servlet Engine v4.0 running: controlPort=disabled
+2021-11-20 13:49:43.243+0000 [id=26]    INFO    jenkins.InitReactorRunner$1#onAttained: Started initialization
+2021-11-20 13:49:43.587+0000 [id=26]    INFO    jenkins.InitReactorRunner$1#onAttained: Listed all plugins
+2021-11-20 13:49:51.846+0000 [id=25]    INFO    jenkins.InitReactorRunner$1#onAttained: Prepared all plugins
+2021-11-20 13:49:51.925+0000 [id=25]    INFO    jenkins.InitReactorRunner$1#onAttained: Started all plugins
+2021-11-20 13:49:52.102+0000 [id=26]    INFO    jenkins.InitReactorRunner$1#onAttained: Augmented all extensions
+2021-11-20 13:49:56.414+0000 [id=26]    INFO    jenkins.InitReactorRunner$1#onAttained: Loaded all jobs
+2021-11-20 13:49:58.156+0000 [id=39]    INFO    hudson.model.AsyncPeriodicWork#lambda$doRun$0: Started Download metadata
+2021-11-20 13:49:58.401+0000 [id=39]    INFO    hudson.util.Retrier#start: Attempt #1 to do the action check updates server
+2021-11-20 13:50:02.136+0000 [id=26]    INFO    o.s.c.s.AbstractApplicationContext#prepareRefresh: Refreshing org.springframework.web.context.support.StaticWebApplicationContext@698f8fdf: display name [Root WebApplicationContext]; startup date [Sat Nov 20 21:50:02 CST 2021]; root of context hierarchy
+2021-11-20 13:50:02.137+0000 [id=26]    INFO    o.s.c.s.AbstractApplicationContext#obtainFreshBeanFactory: Bean factory for application context [org.springframework.web.context.support.StaticWebApplicationContext@698f8fdf]: org.springframework.beans.factory.support.DefaultListableBeanFactory@1ec3ee94
+2021-11-20 13:50:02.232+0000 [id=26]    INFO    o.s.b.f.s.DefaultListableBeanFactory#preInstantiateSingletons: Pre-instantiating singletons in org.springframework.beans.factory.support.DefaultListableBeanFactory@1ec3ee94: defining beans [authenticationManager]; root of factory hierarchy
+2021-11-20 13:50:03.726+0000 [id=26]    INFO    o.s.c.s.AbstractApplicationContext#prepareRefresh: Refreshing org.springframework.web.context.support.StaticWebApplicationContext@6bd66070: display name [Root WebApplicationContext]; startup date [Sat Nov 20 21:50:03 CST 2021]; root of context hierarchy
+2021-11-20 13:50:03.727+0000 [id=26]    INFO    o.s.c.s.AbstractApplicationContext#obtainFreshBeanFactory: Bean factory for application context [org.springframework.web.context.support.StaticWebApplicationContext@6bd66070]: org.springframework.beans.factory.support.DefaultListableBeanFactory@4a921220
+2021-11-20 13:50:03.727+0000 [id=26]    INFO    o.s.b.f.s.DefaultListableBeanFactory#preInstantiateSingletons: Pre-instantiating singletons in org.springframework.beans.factory.support.DefaultListableBeanFactory@4a921220: defining beans [filter,legacy]; root of factory hierarchy
+2021-11-20 13:50:06.309+0000 [id=26]    INFO    jenkins.install.SetupWizard#init: 
+
+*************************************************************
+*************************************************************
+*************************************************************
+
+Jenkins initial setup is required. An admin user has been created and a password generated.
+Please use the following password to proceed to installation:
+
+7d1041959cc54589b695c525f62776b9
+
+This may also be found at: /var/jenkins_home/secrets/initialAdminPassword
+
+*************************************************************
+*************************************************************
+*************************************************************
+
+[root@master-1 jenkins]# 
+
+#######查看初始密码
+kubectl exec -it -n ci jenkins-585687fb8b-dbnmc – bash
+more /var/jenkins_home/secrets/initialAdminPassword
+
+
+
+
+####6、启动 Jenkins 进行初始化
+输入 Kubernetes 集群地址和 Jenkins Service 设置的 NodePort 端口号，访问 Jenkins UI 界面进行初始化，按以下步骤执行：
+[root@master-1 jenkins]# kubectl get svc -n mydlqcloud
+NAME      TYPE       CLUSTER-IP   EXTERNAL-IP   PORT(S)                          AGE
+jenkins   NodePort   10.1.68.67   <none>        8080:32001/TCP,50000:32002/TCP   4m42s
+
+
+输入 Kubernetes 集群地址和上面设置的 Nodeport 方式的端口号 32001，然后输入上面获取的 Token 字符串。例如，本人 Kubernetes 集群 IP 为 172.16.201.134 ，所以就可以访问地址 http://172.16.201.134:32001/jenkins 进入 Jenkins 初始化界面。
