@@ -1,0 +1,59 @@
+####（一）docker-compose
+[root@master-1 cicd]# mkdir docker-gitlab;cd docker-gitlab
+[root@master-1 docker-gitlab]# vim docker-compose.yml
+version: '3'
+services:
+  gitlab:
+    image: 'gitlab/gitlab-ce:latest'
+    container_name: gitlab
+    restart: always
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://172.16.201.134:8929' #若有域名可以写域名
+        gitlab_rails['gitlab_shell_ssh_port'] = 2224
+    ports:
+      - '8929:8929'
+      - '2224:22'
+    volumes:
+      - './config:/etc/gitlab'
+      - './logs:/var/log/gitlab'
+      - './data:/var/opt/gitlab'
+
+
+[root@master-1 docker-gitlab]# docker-compose up -d
+Creating network "docker-gitlab_default" with the default driver
+Pulling gitlab (gitlab/gitlab-ce:latest)...
+latest: Pulling from gitlab/gitlab-ce
+7b1a6ab2e44d: Pull complete
+f1684ebc6541: Pull complete
+02468abe4769: Pull complete
+67434d82c6fc: Pull complete
+f3b378955ed9: Pull complete
+9161b9f516d4: Pull complete
+7b8b542d764e: Pull complete
+e297c8f137fb: Pull complete
+Digest: sha256:03b2f405be1ece43f6c3693a70ed592e8c2031dbaea438b5c3b9405c9ed84bd7
+Status: Downloaded newer image for gitlab/gitlab-ce:latest
+Creating gitlab ... done
+
+[root@master-1 docker-gitlab]# docker-compose ps
+ Name        Command               State                                       Ports                            
+----------------------------------------------------------------------------------------------------------------
+gitlab   /assets/wrapper   Up (health: starting)   0.0.0.0:2224->22/tcp, 443/tcp, 80/tcp, 0.0.0.0:8929->8929/tcp
+[root@master-1 docker-gitlab]# 
+
+
+访问：
+http://172.16.201.134:8929/
+
+
+[root@master-1 docker-gitlab]# docker-compose stop
+Stopping gitlab ... done
+
+[root@master-1 docker-gitlab]# docker-compose rm -v
+Going to remove gitlab
+Are you sure? [yN] y
+Removing gitlab ... done
+[root@master-1 docker-gitlab]# 
+–f, –force，强制直接删除，包括非停止状态的容器
+-v，删除容器所挂载的数据卷
