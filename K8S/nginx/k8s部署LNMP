@@ -1,0 +1,487 @@
+#(十五)、k8s部署 LNMP
+
+[root@master-1 nfs]# vim  /etc/exports
+/nfs *(rw,no_root_squash,no_all_squash,sync)
+
+
+[root@master-1 nfs]# mkdir -p /nfs/pv{1..5} 
+[root@master-1 nfs]# ll
+total 0
+drwxr-xr-x 3 root root 21 Nov 23 02:34 data
+drwxr-xr-x 2 root root  6 Nov 23 17:14 pv1
+drwxr-xr-x 2 root root  6 Nov 23 17:14 pv2
+drwxr-xr-x 2 root root  6 Nov 23 17:14 pv3
+drwxr-xr-x 2 root root  6 Nov 23 17:14 pv4
+drwxr-xr-x 2 root root  6 Nov 23 17:20 pv5
+
+[root@master-1 gitlab]# exportfs -r
+[root@master-1 gitlab]# exportfs
+/nfs_dir/vol1   172.16.201.0/24
+/nfs_dir/vol2   172.16.201.0/24
+/nfs_dir/vol3   172.16.201.0/24
+/nfs_dir/vol4   172.16.201.0/24
+
+
+[root@node-1 ~]#  mount -t nfs 172.16.201.134:/nfs  /nfs
+[root@node-1 ~]# df -h|grep 172.16.201.134
+172.16.201.134:/nfs_dir/vol1       17G  9.3G  7.8G  55% /nfs_dir/vol1
+172.16.201.134:/nfs_dir/vol2       17G  9.3G  7.8G  55% /nfs_dir/vol2
+172.16.201.134:/nfs_dir/vol3       17G  9.3G  7.8G  55% /nfs_dir/vol3
+172.16.201.134:/nfs_dir/vol4       17G  9.3G  7.8G  55% /nfs_dir/vol4
+172.16.201.134:/nfs/data/jenkins   17G  9.3G  7.8G  55% /nfs/data/jenkins
+172.16.201.134:/nfs                17G  9.3G  7.8G  55% /nfs
+
+[root@node-2 ~]#  mount -t nfs 172.16.201.134:/nfs  /nfs
+[root@node-2 ~]# df -h|grep 172.16.201.134
+172.16.201.134:/nfs_dir/vol1       17G  9.3G  7.8G  55% /nfs_dir/vol1
+172.16.201.134:/nfs_dir/vol2       17G  9.3G  7.8G  55% /nfs_dir/vol2
+172.16.201.134:/nfs_dir/vol3       17G  9.3G  7.8G  55% /nfs_dir/vol3
+172.16.201.134:/nfs_dir/vol4       17G  9.3G  7.8G  55% /nfs_dir/vol4
+172.16.201.134:/nfs/data/jenkins   17G  9.3G  7.8G  55% /nfs/data/jenkins
+172.16.201.134:/nfs                17G  9.3G  7.8G  55% /nfs
+
+
+
+[root@master-1 lnmp]# vim pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv0001
+spec:
+  capacity:            
+    storage: 1Gi
+  volumeMode: Filesystem  
+  accessModes:           
+  - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs                
+  nfs:
+    path: /nfs/pv1
+    server: 172.16.201.134
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv0002
+spec:
+  capacity:            
+    storage: 2Gi
+  volumeMode: Filesystem  
+  accessModes:           
+  - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs
+  nfs:
+    path: /nfs/pv2
+    server: 172.16.201.134
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv0003
+spec:
+  capacity:            
+    storage: 3Gi
+  volumeMode: Filesystem  
+  accessModes:           
+  - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs-mysql
+  nfs:
+    path: /nfs/pv3
+    server: 172.16.201.134
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv0004
+spec:
+  capacity:            
+    storage: 5Gi
+  volumeMode: Filesystem  
+  accessModes:           
+  - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs-nginx
+  nfs:
+    path: /nfs/pv4
+    server: 172.16.201.134
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv0005
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs-php
+  nfs:
+    path: /nfs/pv5
+    server: 172.16.201.134
+
+
+[root@master-1 lnmp]# kubectl apply -f pv.yaml
+persistentvolume/pv0001 created
+persistentvolume/pv0002 created
+persistentvolume/pv0003 created
+persistentvolume/pv0004 created
+persistentvolume/pv0005 created
+
+[root@master-1 lnmp]# kubectl get pv
+NAME     CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM   STORAGECLASS   REASON   AGE
+pv0001   1Gi        RWX            Retain           Available           nfs                     13s
+pv0002   2Gi        RWX            Retain           Available           nfs                     13s
+pv0003   3Gi        RWX            Retain           Available           nfs-mysql               13s
+pv0004   5Gi        RWX            Retain           Available           nfs-nginx               13s
+pv0005   5Gi        RWX            Retain           Available           nfs-php                 13s
+[root@master-1 lnmp]# 
+
+
+[root@master-1 lnmp]# vim  storageclass.yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs
+provisioner: kubernetes.io/nfs
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-nginx
+provisioner: kubernetes.io/nfs
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-php
+provisioner: kubernetes.io/nfs
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-mysql
+provisioner: kubernetes.io/nfs
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
+
+[root@master-1 lnmp]# kubectl apply -f storageclass.yaml 
+storageclass.storage.k8s.io/nfs created
+storageclass.storage.k8s.io/nfs-nginx created
+storageclass.storage.k8s.io/nfs-php created
+storageclass.storage.k8s.io/nfs-mysql created
+
+[root@master-1 lnmp]# kubectl get storageclass
+NAME        PROVISIONER         RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+nfs         kubernetes.io/nfs   Retain          Immediate           false                  14s
+nfs-mysql   kubernetes.io/nfs   Retain          Immediate           false                  14s
+nfs-nginx   kubernetes.io/nfs   Retain          Immediate           false                  14s
+nfs-php     kubernetes.io/nfs   Retain          Immediate           false                  14s
+
+
+[root@master-1 lnmp]# kubectl create secret generic mysql-pass --from-literal=password=123456
+secret/mysql-pass created
+
+[root@master-1 lnmp]# kubectl get secret
+NAME                  TYPE                                  DATA   AGE
+db-user-pass          Opaque                                2      3d1h
+default-token-q94x6   kubernetes.io/service-account-token   3      4d5h
+mysql-pass            Opaque                                1      17s
+[root@master-1 lnmp]# 
+
+[root@master-1 lnmp]# vim mysql-deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: blog-mysql
+  labels:
+    app: blog-mysql
+spec:
+  ports:
+    - port: 3306
+  selector:
+    app: blog-mysql
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pv-claim
+spec:
+  storageClassName: nfs-mysql
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 3Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blog-mysql
+spec:
+  selector:
+    matchLabels:
+      app: blog-mysql
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: blog-mysql
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:5.6
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-pass
+              key: password
+        ports: 
+        - containerPort: 3306
+          name: mysql
+        volumeMounts:
+        - name: mysql-persistent-storage
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: mysql-persistent-storage
+        persistentVolumeClaim:
+          claimName: mysql-pv-claim
+
+[root@master-1 lnmp]# kubectl apply -f mysql-deployment.yaml
+service/blog-mysql created
+persistentvolumeclaim/mysql-pv-claim created
+deployment.apps/blog-mysql created
+
+[root@master-1 lnmp]# kubectl get pods
+NAME                          READY   STATUS    RESTARTS   AGE
+blog-mysql-5cb7fd64f8-mx9x9   1/1     Running   0          6s
+
+
+[root@master-1 lnmp]# vim nginx-deployment.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-wp-config
+data:
+  default.conf: |-
+    server {
+        listen 80;
+        server_name localhost;
+        root /usr/local/nginx/html;
+        index index.html index.php;
+ 
+        location ~ \.php$ {
+            root /usr/local/nginx/html;
+            fastcgi_pass blog-php:9000;#这里名称为blog-php svc名称
+            fastcgi_param SCRIPT_FILENAME /usr/local/nginx/html$fastcgi_script_name;
+            include fastcgi_params;
+            fastcgi_connect_timeout 60s;
+            fastcgi_read_timeout 300s;
+            fastcgi_send_timeout 300s;
+        }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: blog-nginx
+  labels:
+    app: nginx
+spec:
+  ports:
+    - port: 80
+  selector:
+    app: blog-nginx
+    tier: frontend
+  type: NodePort
+  sessionAffinity: ClientIP
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: nginx-pv-claim
+spec:
+  storageClassName: nfs-nginx
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blog-nginx
+  labels:
+    app: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blog-nginx
+      tier: frontend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: blog-nginx
+        tier: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.16.1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+          name: nginx
+        volumeMounts:
+        - name: nginx-persistent-storage
+          mountPath: /usr/local/nginx/html
+        - name: config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
+      volumes:
+      - name: nginx-persistent-storage
+        persistentVolumeClaim:
+          claimName: nginx-pv-claim
+      - name: config
+        configMap:
+          name: nginx-wp-config
+
+
+
+[root@master-1 lnmp]# kubectl apply -f  nginx-deployment.yaml 
+configmap/nginx-wp-config created
+service/blog-nginx created
+persistentvolumeclaim/nginx-pv-claim created
+deployment.apps/blog-nginx created
+
+
+[root@master-1 lnmp]# kubectl get pod 
+NAME                          READY   STATUS    RESTARTS   AGE
+blog-mysql-5cb7fd64f8-mx9x9   1/1     Running   0          45m
+blog-nginx-5545fc6957-64dzg   1/1     Running   8          16m
+blog-php-6cc8557468-zcm9h     1/1     Running   0          78s
+
+#####问题：等php 建Running 之后，nginx 就不报错了。
+[root@node-2 ~]# docker logs --tail="100"  75dad5697fa6
+2021/11/21 05:04:01 [emerg] 1#1: host not found in upstream "blog-php" in /etc/nginx/conf.d/default.conf:9
+nginx: [emerg] host not found in upstream "blog-php" in /etc/nginx/conf.d/default.conf:9
+
+先kubectl apply -f nginx-deployment.yaml ，会出现host not found in upstream "blog-php"  找不到的情况。
+#####问题：等php 建Running 之后，nginx 就不报错了。
+
+kubectl delete pv pv0004
+kubectl apply -f  pv0004.yaml
+
+
+
+[root@master-1 lnmp]# vim php-deployment.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: blog-php
+  labels:
+    app: php
+spec:
+  ports:
+    - port: 9000
+  selector:
+    app: blog-php
+    tier: frontend
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: php-pv-claim
+spec:
+  storageClassName: nfs-php
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blog-php
+  labels:
+    app: php
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blog-php
+      tier: frontend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: blog-php
+        tier: frontend
+    spec:
+      containers:
+      - name: php
+        image: php:7.1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9000
+          name: php
+        volumeMounts:
+        - name: php-persistent-storage
+          mountPath: /usr/local/nginx/html
+      imagePullSecrets:
+      - name: regsecret
+      volumes:
+      - name: php-persistent-storage
+        persistentVolumeClaim:
+          claimName: php-pv-claim
+
+[root@master-1 lnmp]# kubectl apply -f php-deployment.yaml
+service/blog-php created
+persistentvolumeclaim/php-pv-claim created
+deployment.apps/blog-php created
+
+
+[root@master-1 lnmp]# kubectl get pod 
+NAME                          READY   STATUS    RESTARTS   AGE
+blog-mysql-5cb7fd64f8-mx9x9   1/1     Running   0          45m
+blog-nginx-5545fc6957-64dzg   1/1     Running   8          16m
+blog-php-6cc8557468-zcm9h     1/1     Running   0          78s
+
+
+
+
+[root@master-1 lnmp]# kubectl get pv,pvc
+NAME                      CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM                    STORAGECLASS   REASON   AGE
+persistentvolume/pv0001   1Gi        RWX            Retain           Available                            nfs                     61m
+persistentvolume/pv0002   2Gi        RWX            Retain           Available                            nfs                     61m
+persistentvolume/pv0003   3Gi        RWX            Retain           Bound       default/mysql-pv-claim   nfs-mysql               61m
+persistentvolume/pv0004   5Gi        RWX            Retain           Bound       default/nginx-pv-claim   nfs-nginx               24m
+persistentvolume/pv0005   5Gi        RWX            Retain           Bound       default/php-pv-claim     nfs-php                 61m
+
+NAME                                   STATUS   VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+persistentvolumeclaim/mysql-pv-claim   Bound    pv0003   3Gi        RWX            nfs-mysql      50m
+persistentvolumeclaim/nginx-pv-claim   Bound    pv0004   5Gi        RWX            nfs-nginx      18m
+persistentvolumeclaim/php-pv-claim     Bound    pv0005   5Gi        RWX            nfs-php        3m30s
+[root@master-1 lnmp]# 
