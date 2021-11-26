@@ -1,0 +1,13 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: nginx-web
+spec:
+  rules:
+  - host: www.shooter.com
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: php-fpm-nginx   #这里对应要代理nginx svc名称
+          servicePort: 80

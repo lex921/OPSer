@@ -1,0 +1,35 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs
+provisioner: kubernetes.io/nfs
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-nginx
+provisioner: kubernetes.io/nfs
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-php
+provisioner: kubernetes.io/nfs
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-mysql
+provisioner: kubernetes.io/nfs
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"

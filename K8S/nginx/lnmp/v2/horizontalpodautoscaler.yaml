@@ -1,0 +1,18 @@
+kind: HorizontalPodAutoscaler # 对象类型，简称 hpa，水平自动伸缩
+apiVersion: autoscaling/v2beta2 # autoscaling/v2beta2 与 autoscaling/v1 的 API 有很大的不同，注意识别两者的差异
+metadata:
+  name: php-fpm-nginx
+spec:
+  scaleTargetRef: # 伸缩的目标对象
+    apiVersion: apps/v1 # 对象版本
+    kind: Deployment # 目标对象的类型
+    name: php-fpm-nginx # 目标对象的名称
+  minReplicas: 3 # 最小副本数
+  maxReplicas: 10 # 最大副本数
+  metrics: # 指标
+    - type: Resource # 类型：资源
+      resource:
+        name: memory # 内存
+        target:
+          type: Utilization # 利用率
+          averageUtilization: 1 # 1% 这个值是为了实验，具体值请参考业务方实际情况而定

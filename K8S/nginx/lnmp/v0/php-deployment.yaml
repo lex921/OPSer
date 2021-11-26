@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-server
+  labels:
+    name: php-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: php-server
+  template:
+    metadata:
+      labels:
+        app: php-server
+    spec:
+      containers:
+      - name: php-server
+        image: php:0.1
+        volumeMounts:
+        - mountPath: /var/www/html/
+          name: nginx-data
+        ports:
+        - containerPort: 9000
+      volumes:
+      - name: nginx-data
+        hostPath:
+         path: /root/k8s/html
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: php
+spec:
+  ports:
+  - name: php
+    port: 9000
+    protocol: TCP
+    targetPort: 9000
+  selector:
+    app: php-server

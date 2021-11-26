@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: blog-php
+  labels:
+    app: php
+spec:
+  ports:
+    - port: 9000
+  selector:
+    app: blog-php
+    tier: frontend
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: php-pv-claim
+spec:
+  storageClassName: nfs-php
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blog-php
+  labels:
+    app: php
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blog-php
+      tier: frontend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: blog-php
+        tier: frontend
+    spec:
+      containers:
+      - name: php
+        image: php:0.1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9000
+          name: php
+        volumeMounts:
+        - name: php-persistent-storage
+          mountPath: /usr/local/nginx/html
+      volumes:
+      - name: php-persistent-storage
+        persistentVolumeClaim:
+          claimName: php-pv-claim
