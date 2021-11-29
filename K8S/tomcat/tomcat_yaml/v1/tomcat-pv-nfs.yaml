@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nfs-tomcat01                     #创建的pv名称可创建多个.
+  namespace: mt-math                    #属于的命名空间
+spec:
+  capacity:
+    storage: 200M                        #创建的pv容量为1G
+  accessModes:
+  - ReadWriteMany                       #pv的访问模式:可读可写可挂在多个节点
+  persistentVolumeReclaimPolicy: Recycle #回收策略
+  storageClassName: sc-nfs-tomcat01
+  nfs:                                  #创建的pv数据来源
+    path: /nfs/pv-tomcat-log/01                     #数据源目录
+    server: 172.16.201.134                #数据源ip
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nfs-tomcat02                     #创建的pv名称可创建多个.
+  namespace: mt-math                    #属于的命名空间
+spec:
+  capacity:
+    storage: 200M                        #创建的pv容量为1G
+  accessModes:
+  - ReadWriteMany                       #pv的访问模式:可读可写可挂在多个节点
+  persistentVolumeReclaimPolicy: Recycle #回收策略 由于是持久化日志没必要删除pod保留日志。只是为了方便查看日志内容。
+  storageClassName: sc-nfs-tomcat01
+  nfs:                                  #创建的pv数据来源
+    path: /nfs/pv-tomcat-log/02                     #数据源目录
+    server: 172.16.201.134                #数据源ip
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nfs-tomcat03                     #创建的pv名称可创建多个.
+  namespace: mt-math                    #属于的命名空间
+spec:
+  capacity:
+    storage: 200M                        #创建的pv容量为1G
+  accessModes:
+  - ReadWriteMany                       #pv的访问模式:可读可写可挂在多个节点
+  persistentVolumeReclaimPolicy: Recycle #回收策略
+  storageClassName: sc-nfs-tomcat01
+  nfs:                                  #创建的pv数据来源
+    path: /nfs/pv-tomcat-log/03                     #数据源目录
+    server: 172.16.201.134                #数据源ip

@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-k8s
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: spring-k8s
+  template:
+    metadata:
+      labels:
+        app: spring-k8s
+    spec:
+      containers:
+        - name: spring-k8s
+          image: tomcat:7
+          ports:
+            - containerPort: 8080

@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: mt-math
+  name: tomcat
+  labels:
+    app: tomcat
+spec:
+  ports:
+  - name: web
+    port: 8080
+    targetPort: 8080
+#    nodePort: 28000
+    protocol: TCP
+  clusterIP: None
+  selector:
+    app: tomcat
+#  type: NodePort
+  sessionAffinity: None
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  namespace: mt-math
+  name: web
+spec:
+  serviceName: "tomcat"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tomcat
+  template:
+    metadata:
+      namespace: mt-math
+      labels:
+        app: tomcat
+    spec:
+      containers:
+      - name: tomcat
+        image: tomcat:7
+        ports:
+        - containerPort: 8080
+          name: web
+        volumeMounts:
+        - name: log-pvc
+          mountPath: /opt/tomcat/logs
+        - name: tomcat-nfs-webapps
+          mountPath: /opt/tomcat/webapps
+        - name: tomcat-serverxml
+          mountPath: /opt/tomcat/conf/server.xml
+          subPath: server.xml
+
+      volumes:                       
+      - name: tomcat-nfs-webapps             
+        nfs:                         
+          server: 172.16.201.134       
+          path: /nfs/tomcat-wwwroot      
+      - name: tomcat-serverxml
+        configMap:
+          name: tomcat-configmap
+          items:
+          - key: server.xml
+            path: server.xml
+    
+  volumeClaimTemplates:
+  - metadata:
+      name: log-pvc
+      namespace: mt-math
+    spec:
+      accessModes: [ "ReadWriteMany" ]
+      resources:
+        requests:
+          storage: 200M
+      storageClassName: sc-nfs-tomcat01

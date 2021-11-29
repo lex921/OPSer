@@ -1,0 +1,9 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: sc-nfs-tomcat01
+  namespace: mt-math
+provisioner: kubernetes.io/nfs
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
