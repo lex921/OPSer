@@ -1,0 +1,32 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  labels:
+    app: nexus3
+  name: nexus3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nexus3
+  template:
+    metadata:
+      labels:
+        app: nexus3
+    spec:
+      containers:
+        - name: nexus3
+          image: nexus:0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+          - containerPort: 8081
+            protocol: TCP
+          volumeMounts:
+          - name: nexus-data
+            mountPath: /data/maven-nexus
+      volumes:
+        - name: nexus-data
+          persistentVolumeClaim:
+            claimName: nexus3-data-pvc
+      nodeSelector:
+        kubernetes.io/hostname: node-1
