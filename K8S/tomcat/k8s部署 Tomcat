@@ -1,0 +1,415 @@
+##(十六)、k8s部署 Tomcat
+
+tomcat部署要点总结: 
+
+利用configmap实现对server.xml的挂载
+利用tomcat-ingress实现对tomcat对外网络暴露 
+利用pv实现对tomcat日志存储
+利用statefulset创建tomcat pod。 
+利用mt-math.yaml创建mt-math命名空间
+注:默认已安装ingress-nginx，core-dns，NFS
+
+
+1.NFS共享目录下创建tomcat 日志存放目录及项目存放目录;这里手动创建pv，当然pv也可以进行动态创建
+
+mkdir -p /nfs/tomcat-wwwroot/ROOT/;mkdir -p /nfs/pv-tomcat-log/{01,02,03}  #创建日志目录及项目目录
+echo "k8s-ingress-tomcat-nfs-pv -Wyltest"> /nfs/tomcat-wwwroot/ROOT/index.jsp #创建测试首页文件jsp
+
+
+[root@master-1 tomcat]# vim tomcat-configmap.yaml 
+apiVersion: v1
+data:
+  server.xml: |
+    <?xml version='1.0' encoding='utf-8'?>
+    <!--
+      Licensed to the Apache Software Foundation (ASF) under one or more
+      contributor license agreements.  See the NOTICE file distributed with
+      this work for additional information regarding copyright ownership.
+      The ASF licenses this file to You under the Apache License, Version 2.0
+      (the "License"); you may not use this file except in compliance with
+      the License.  You may obtain a copy of the License at
+
+          http://wangyunlong/licenses/LICENSE-2.0
+
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
+    -->
+    <!-- Note:  A "Server" is not itself a "Container", so you may not
+         define subcomponents such as "Valves" at this level.
+         Documentation at /docs/config/server.html
+     -->
+    <Server port="8005" shutdown="SHUTDOWN">
+      <Listener className="org.apache.catalina.startup.VersionLoggerListener" />
+      <!-- Security listener. Documentation at /docs/config/listeners.html
+      <Listener className="org.apache.catalina.security.SecurityListener" />
+      -->
+      <!--APR library loader. Documentation at /docs/apr.html -->
+      <Listener className="org.apache.catalina.core.AprLifecycleListener" SSLEngine="on" />
+      <!--Initialize Jasper prior to webapps are loaded. Documentation at /docs/jasper-howto.html -->
+      <Listener className="org.apache.catalina.core.JasperListener" />
+      <!-- Prevent memory leaks due to use of particular java/javax APIs-->
+      <Listener className="org.apache.catalina.core.JreMemoryLeakPreventionListener" />
+      <Listener className="org.apache.catalina.mbeans.GlobalResourcesLifecycleListener" />
+      <Listener className="org.apache.catalina.core.ThreadLocalLeakPreventionListener" />
+
+      <!-- Global JNDI resources
+           Documentation at /docs/jndi-resources-howto.html
+      -->
+      <GlobalNamingResources>
+        <!-- Editable user database that can also be used by
+             UserDatabaseRealm to authenticate users
+        -->
+        <Resource name="UserDatabase" auth="Container"
+                  type="org.apache.catalina.UserDatabase"
+                  description="User database that can be updated and saved"
+                  factory="org.apache.catalina.users.MemoryUserDatabaseFactory"
+                  pathname="conf/tomcat-users.xml" />
+      </GlobalNamingResources>
+
+      <!-- A "Service" is a collection of one or more "Connectors" that share
+           a single "Container" Note:  A "Service" is not itself a "Container",
+           so you may not define subcomponents such as "Valves" at this level.
+           Documentation at /docs/config/service.html
+       -->
+      <Service name="Catalina">
+
+        <!--The connectors can use a shared executor, you can define one or more named thread pools-->
+        <!--
+        <Executor name="tomcatThreadPool" namePrefix="catalina-exec-"
+            maxThreads="150" minSpareThreads="4"/>
+        -->
+
+
+        <!-- A "Connector" represents an endpoint by which requests are received
+             and responses are returned. Documentation at :
+             Java HTTP Connector: /docs/config/http.html (blocking & non-blocking)
+             Java AJP  Connector: /docs/config/ajp.html
+             APR (HTTP/AJP) Connector: /docs/apr.html
+             Define a non-SSL HTTP/1.1 Connector on port 8080
+        -->
+        <Connector port="8080" protocol="HTTP/1.1"
+                   connectionTimeout="20000"
+                   redirectPort="8443" />
+        <!-- A "Connector" using the shared thread pool-->
+        <!--
+        <Connector executor="tomcatThreadPool"
+                   port="8080" protocol="HTTP/1.1"
+                   connectionTimeout="20000"
+                   redirectPort="8443" />
+        -->
+        <!-- Define a SSL HTTP/1.1 Connector on port 8443
+             This connector uses the BIO implementation that requires the JSSE
+             style configuration. When using the APR/native implementation, the
+             OpenSSL style configuration is required as described in the APR/native
+             documentation -->
+        <!--
+        <Connector port="8443" protocol="org.apache.coyote.http11.Http11Protocol"
+                   maxThreads="150" SSLEnabled="true" scheme="https" secure="true"
+                   clientAuth="false" sslProtocol="TLS" />
+        -->
+
+        <!-- Define an AJP 1.3 Connector on port 8009 -->
+        <Connector port="8009" protocol="AJP/1.3" redirectPort="8443" />
+
+
+        <!-- An Engine represents the entry point (within Catalina) that processes
+             every request.  The Engine implementation for Tomcat stand alone
+             analyzes the HTTP headers included with the request, and passes them
+             on to the appropriate Host (virtual host).
+             Documentation at /docs/config/engine.html -->
+
+        <!-- You should set jvmRoute to support load-balancing via AJP ie :
+        <Engine name="Catalina" defaultHost="localhost" jvmRoute="jvm1">
+        -->
+        <Engine name="Catalina" defaultHost="localhost">
+
+          <!--For clustering, please take a look at documentation at:
+              /docs/cluster-howto.html  (simple how to)
+              /docs/config/cluster.html (reference documentation) -->
+          <!--
+          <Cluster className="org.apache.catalina.ha.tcp.SimpleTcpCluster"/>
+          -->
+
+          <!-- Use the LockOutRealm to prevent attempts to guess user passwords
+               via a brute-force attack -->
+          <Realm className="org.apache.catalina.realm.LockOutRealm">
+            <!-- This Realm uses the UserDatabase configured in the global JNDI
+                 resources under the key "UserDatabase".  Any edits
+                 that are performed against this UserDatabase are immediately
+                 available for use by the Realm.  -->
+            <Realm className="org.apache.catalina.realm.UserDatabaseRealm"
+                   resourceName="UserDatabase"/>
+          </Realm>
+
+          <Host name="localhost"  appBase="webapps"
+                unpackWARs="true" autoDeploy="true">
+
+            <!-- SingleSignOn valve, share authentication between web applications
+                 Documentation at: /docs/config/valve.html -->
+            <!--
+            <Valve className="org.apache.catalina.authenticator.SingleSignOn" />
+            -->
+
+            <!-- Access log processes all example.
+                 Documentation at: /docs/config/valve.html
+                 Note: The pattern used is equivalent to using pattern="common" -->
+            <Valve className="org.apache.catalina.valves.AccessLogValve" directory="logs"
+                   prefix="localhost_access_log." suffix=".txt"
+                   pattern="%h %l %u %t &quot;%r&quot; %s %b" />
+
+          </Host>
+        </Engine>
+      </Service>
+    </Server>
+kind: ConfigMap
+metadata:
+  creationTimestamp: 2019-06-05T03:04:53Z
+  name: tomcat-configmap
+  namespace: mt-math
+
+[root@master-1 tomcat]# kubectl get configmap -n mt-math
+NAME               DATA   AGE
+tomcat-configmap   1      29s
+
+
+
+
+[root@master-1 tomcat]# vim tomcat-pv-nfs.yaml 
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nfs-tomcat01                     #创建的pv名称可创建多个.
+  namespace: mt-math                    #属于的命名空间
+spec:
+  capacity:
+    storage: 200M                        #创建的pv容量为1G
+  accessModes:
+  - ReadWriteMany                       #pv的访问模式:可读可写可挂在多个节点
+  persistentVolumeReclaimPolicy: Recycle #回收策略
+  storageClassName: sc-nfs-tomcat01
+  nfs:                                  #创建的pv数据来源
+    path: /nfs/pv-tomcat-log/01                     #数据源目录
+    server: 172.16.201.134                #数据源ip
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nfs-tomcat02                     #创建的pv名称可创建多个.
+  namespace: mt-math                    #属于的命名空间
+spec:
+  capacity:
+    storage: 200M                        #创建的pv容量为1G
+  accessModes:
+  - ReadWriteMany                       #pv的访问模式:可读可写可挂在多个节点
+  persistentVolumeReclaimPolicy: Recycle #回收策略 由于是持久化日志没必要删除pod保留日志。只是为了方便查看日志内容。
+  storageClassName: sc-nfs-tomcat02
+  nfs:                                  #创建的pv数据来源
+    path: /nfs/pv-tomcat-log/02                     #数据源目录
+    server: 172.16.201.134                #数据源ip
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nfs-tomcat03                     #创建的pv名称可创建多个.
+  namespace: mt-math                    #属于的命名空间
+spec:
+  capacity:
+    storage: 200M                        #创建的pv容量为1G
+  accessModes:
+  - ReadWriteMany                       #pv的访问模式:可读可写可挂在多个节点
+  persistentVolumeReclaimPolicy: Recycle #回收策略
+  storageClassName: sc-nfs-tomcat03
+  nfs:                                  #创建的pv数据来源
+    path: /nfs/pv-tomcat-log/03                     #数据源目录
+    server: 172.16.201.134                #数据源ip
+
+kubectl delete -f  tomcat-pv-nfs.yaml 
+[root@master-1 tomcat]# kubectl apply -f  tomcat-pv-nfs.yaml 
+persistentvolume/pv-nfs-tomcat01 created
+persistentvolume/pv-nfs-tomcat02 created
+persistentvolume/pv-nfs-tomcat03 created
+
+
+[root@master-1 tomcat]# kubectl get pv -n mt-math   
+NAME              CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM                    STORAGECLASS      REASON   AGE
+pv-nfs-tomcat01   200M       RWX            Recycle          Available                            sc-nfs-tomcat01            14s
+pv-nfs-tomcat02   200M       RWX            Recycle          Available                            sc-nfs-tomcat02            14s
+pv-nfs-tomcat03   200M       RWX            Recycle          Available                            sc-nfs-tomcat03            14s
+
+
+[root@master-1 v1]# vim storageclass.yaml 
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: sc-nfs-tomcat01
+  namespace: mt-math
+provisioner: kubernetes.io/nfs
+reclaimPolicy: Retain
+parameters:
+  archiveOnDelete: "false"
+[root@master-1 v1]# 
+
+kubectl delete -f storageclass.yaml     
+[root@master-1 tomcat]# kubectl apply -f storageclass.yaml
+storageclass.storage.k8s.io/sc-nfs-tomcat01 created
+storageclass.storage.k8s.io/sc-nfs-tomcat02 created
+storageclass.storage.k8s.io/sc-nfs-tomcat03 created
+
+
+
+[root@master-1 tomcat]# kubectl get storageclass -n mt-math   
+NAME              PROVISIONER         RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+sc-nfs-tomcat01   kubernetes.io/nfs   Retain          Immediate           false                  1s
+sc-nfs-tomcat02   kubernetes.io/nfs   Retain          Immediate           false                  1s
+sc-nfs-tomcat03   kubernetes.io/nfs   Retain          Immediate           false                  1s
+
+
+
+
+
+[root@master-1 tomcat]# kubectl delete pvc log-pvc-web-0 -n mt-math                
+persistentvolumeclaim "log-pvc-web-0" deleted
+
+
+
+
+[root@master-1 tomcat]# vim tomcat-statefulset.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: mt-math
+  name: tomcat
+  labels:
+    app: tomcat
+spec:
+  ports:
+  - port: 8080
+    name: web
+  clusterIP: None
+  selector:
+    app: tomcat
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  namespace: mt-math
+  name: web
+spec:
+  serviceName: "tomcat"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tomcat
+  template:
+    metadata:
+      namespace: mt-math
+      labels:
+        app: tomcat
+    spec:
+      containers:
+      - name: tomcat
+        image: tomcat:7
+        ports:
+        - containerPort: 8080
+          name: web
+        volumeMounts:
+        - name: log-pvc
+          mountPath: /opt/tomcat/logs
+        - name: tomcat-nfs-webapps
+          mountPath: /opt/tomcat/webapps
+        - name: tomcat-serverxml
+          mountPath: /opt/tomcat/conf/server.xml
+          subPath: server.xml
+
+      volumes:                       
+      - name: tomcat-nfs-webapps             
+        nfs:                         
+          server: 172.16.201.134       
+          path: /nfs/tomcat-wwwroot      
+      - name: tomcat-serverxml
+        configMap:
+          name: tomcat-configmap
+          items:
+          - key: server.xml
+            path: server.xml
+    
+  volumeClaimTemplates:
+  - metadata:
+      name: log-pvc
+      namespace: mt-math
+    spec:
+      accessModes: [ "ReadWriteMany" ]
+      resources:
+        requests:
+          storage: 200M
+      storageClassName: sc-nfs-tomcat01
+
+
+kubectl delete -f tomcat-statefulset.yaml
+[root@master-1 tomcat]# kubectl apply -f tomcat-statefulset.yaml
+service/tomcat created
+statefulset.apps/web created
+
+
+[root@master-1 tomcat]#  kubectl get pv,pvc -n mt-math  
+
+NAME                               CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM                    STORAGECLASS      REASON   AGE
+persistentvolume/pv-nfs-tomcat01   200M       RWX            Recycle          Bound       mt-math/log-pvc-web-0    sc-nfs-tomcat01            6h19m
+persistentvolume/pv-nfs-tomcat02   200M       RWX            Recycle          Bound       mt-math/log-pvc-web-1    sc-nfs-tomcat01            6h19m
+persistentvolume/pv-nfs-tomcat03   200M       RWX            Recycle          Bound       mt-math/log-pvc-web-2    sc-nfs-tomcat01            6h19m
+persistentvolume/pv0001            1Gi        RWX            Retain           Available                            nfs                        20h
+persistentvolume/pv0002            2Gi        RWX            Retain           Available                            nfs                        20h
+persistentvolume/pv0003            3Gi        RWX            Retain           Bound       default/mysql-pv-claim   nfs-mysql                  20h
+persistentvolume/pv0004            5Gi        RWX            Retain           Released    default/nginx-pv-claim   nfs-nginx                  17h
+persistentvolume/pv0005            5Gi        RWX            Retain           Released    default/php-pv-claim     nfs-php                    17h
+
+NAME                                  STATUS   VOLUME            CAPACITY   ACCESS MODES   STORAGECLASS      AGE
+persistentvolumeclaim/log-pvc-web-0   Bound    pv-nfs-tomcat01   200M       RWX            sc-nfs-tomcat01   64m
+persistentvolumeclaim/log-pvc-web-1   Bound    pv-nfs-tomcat02   200M       RWX            sc-nfs-tomcat01   15m
+persistentvolumeclaim/log-pvc-web-2   Bound    pv-nfs-tomcat03   200M       RWX            sc-nfs-tomcat01   3m3s
+
+
+[root@master-1 tomcat]#  kubectl get pod -n mt-math -o wide 
+NAME    READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+web-0   1/1     Running   0          66m     10.244.2.18   node-2   <none>           <none>
+web-1   1/1     Running   0          17m     10.244.1.27   node-1   <none>           <none>
+web-2   1/1     Running   0          4m49s   10.244.2.19   node-2   <none>           <none>
+
+
+
+增加测试页面
+景象是原始的，去各个节点容器里增加测试页面：
+[root@node-1 ~]# docker exec -it  d107a8d3ecf0 /bin/bash
+root@tomcat01-95fc6cd5d-p85g6:/usr/local/tomcat#mkdir webapps/ROOT;cd webapps
+root@tomcat01-95fc6cd5d-p85g6:/usr/local/tomcat/webapps# echo "node-2 -1" > ROOT/index.jsp  
+
+4个pod ，4个页面：
+echo "node-1 -1" > ROOT/index.jsp  
+echo "node-1 -2" > ROOT/index.jsp  
+echo "node-2 -1" > ROOT/index.jsp  
+
+
+[root@master-1 v1]# kubectl get svc -n mt-math -o wide
+NAME     TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)    AGE    SELECTOR
+tomcat   ClusterIP   None         <none>        8080/TCP   100m   app=tomcat
+
+
+[root@master-1 v1]#  kubectl describe service/tomcat -n mt-math
+Name:              tomcat
+Namespace:         mt-math
+Labels:            app=tomcat
+Annotations:       <none>
+Selector:          app=tomcat
+Type:              ClusterIP
+IP:                None
+Port:              web  8080/TCP
+TargetPort:        8080/TCP
+Endpoints:         10.244.1.27:8080,10.244.2.18:8080,10.244.2.19:8080
+Session Affinity:  None
+Events:            <none>
+You have new mail in /var/spool/mail/root
+[root@master-1 v1]# 
