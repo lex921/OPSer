@@ -1,0 +1,31 @@
+#####测试tom猫服务自愈：
+
+[root@node-1 pv-tomcat-log]# ps -ef|grep tomcat
+root      19377  19359  0 Nov25 ?        00:00:32 /usr/local/openjdk-8/bin/java -Djava.util.logging.config.file=/usr/local/tomcat/conf/logging.properties -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager -Djdk.tls.ephemeralDHKeySize=2048 -Dorg.apache.catalina.security.SecurityListener.UMASK=0027 -Dignore.endorsed.dirs= -classpath /usr/local/tomcat/bin/bootstrap.jar:/usr/local/tomcat/bin/tomcat-juli.jar -Dcatalina.base=/usr/local/tomcat -Dcatalina.home=/usr/local/tomcat -Djava.io.tmpdir=/usr/local/tomcat/temp org.apache.catalina.startup.Bootstrap start
+root      38398  38363  0 Nov25 ?        00:00:32 /usr/local/openjdk-8/bin/java -Djava.util.logging.config.file=/usr/local/tomcat/conf/logging.properties -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager -Djdk.tls.ephemeralDHKeySize=2048 -Dorg.apache.catalina.security.SecurityListener.UMASK=0027 -Dignore.endorsed.dirs= -classpath /usr/local/tomcat/bin/bootstrap.jar:/usr/local/tomcat/bin/tomcat-juli.jar -Dcatalina.base=/usr/local/tomcat -Dcatalina.home=/usr/local/tomcat -Djava.io.tmpdir=/usr/local/tomcat/temp org.apache.catalina.startup.Bootstrap start
+root      38409  38377  0 Nov25 ?        00:00:31 /usr/local/openjdk-8/bin/java -Djava.util.logging.config.file=/usr/local/tomcat/conf/logging.properties -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager -Djdk.tls.ephemeralDHKeySize=2048 -Dorg.apache.catalina.security.SecurityListener.UMASK=0027 -Dignore.endorsed.dirs= -classpath /usr/local/tomcat/bin/bootstrap.jar:/usr/local/tomcat/bin/tomcat-juli.jar -Dcatalina.base=/usr/local/tomcat -Dcatalina.home=/usr/local/tomcat -Djava.io.tmpdir=/usr/local/tomcat/temp org.apache.catalina.startup.Bootstrap start
+
+干掉任何一个tomcat猫
+[root@node-1 pv-tomcat-log]# kill -9 38409
+
+剩余2个了
+[root@node-1 pv-tomcat-log]# ps -ef|grep tomcat
+root      19377  19359  0 Nov25 ?        00:00:32 /usr/local/openjdk-8/bin/java -Djava.util.logging.config.file=/usr/local/tomcat/conf/logging.properties -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager -Djdk.tls.ephemeralDHKeySize=2048 -Dorg.apache.catalina.security.SecurityListener.UMASK=0027 -Dignore.endorsed.dirs= -classpath /usr/local/tomcat/bin/bootstrap.jar:/usr/local/tomcat/bin/tomcat-juli.jar -Dcatalina.base=/usr/local/tomcat -Dcatalina.home=/usr/local/tomcat -Djava.io.tmpdir=/usr/local/tomcat/temp org.apache.catalina.startup.Bootstrap start
+root      38398  38363  0 Nov25 ?        00:00:32 /usr/local/openjdk-8/bin/java -Djava.util.logging.config.file=/usr/local/tomcat/conf/logging.properties -Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager -Djdk.tls.ephemeralDHKeySize=2048 -Dorg.apache.catalina.security.SecurityListener.UMASK=0027 -Dignore.endorsed.dirs= -classpath /usr/local/tomcat/bin/bootstrap.jar:/usr/local/tomcat/bin/tomcat-juli.jar -Dcatalina.base=/usr/local/tomcat -Dcatalina.home=/usr/local/tomcat -Djava.io.tmpdir=/usr/local/tomcat/temp org.apache.catalina.startup.Bootstrap start
+
+出现错误，立即重启了一个
+[root@master-1 v1]# kubectl get pod -o wide --watch
+spring-k8s-66ffd64dbb-xwlz5      0/1     Error     0          4h8m   10.244.1.28   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-xwlz5      1/1     Running   1          4h8m   10.244.1.28   node-1   <none>           <none>
+
+
+[root@master-1 v1]# kubectl get pod -o wide --watch
+NAME                             READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+blog-mysql-5cb7fd64f8-qlksz      1/1     Running   5          24h     10.244.2.11   node-2   <none>           <none>
+php-fpm-nginx-5fdcb6c57d-z5vs8   2/2     Running   0          14h     10.244.1.25   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-bh9pd      1/1     Running   0          4h10m   10.244.2.21   node-2   <none>           <none>
+spring-k8s-66ffd64dbb-dgmdj      1/1     Running   0          4h10m   10.244.2.20   node-2   <none>           <none>
+spring-k8s-66ffd64dbb-wgq79      1/1     Running   0          4h10m   10.244.1.29   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-xwlz5      1/1     Running   1          4h10m   10.244.1.28   node-1   <none>           <none>
+
+spring-k8s相关状态恢复正常
