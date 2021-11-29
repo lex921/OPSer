@@ -1,0 +1,226 @@
+k8s启动的tomcat会话保持配置
+问题：k8s启动的tomcat服务，每次访问都带了session会话，每次调整不同的pod导致session实效，系统登录失败。
+处理：在server中添加session保持:sessionAffinity: ClientIP
+
+[root@master-1 v2]# vim deploy.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-k8s
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: spring-k8s
+  template:
+    metadata:
+      labels:
+        app: spring-k8s
+    spec:
+      containers:
+        - name: spring-k8s
+          image: tomcat:7
+          ports:
+            - containerPort: 8080
+[root@master-1 v2]# 
+
+[root@master-1 v2]# vim service.yaml 
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-k8s
+spec:
+  selector:
+    app: spring-k8s
+  type: NodePort
+  ports:
+    - nodePort: 30008
+      port: 80
+      protocol: TCP
+      targetPort: 8080
+  sessionAffinity: ClientIP
+
+
+景象是原始的，去各个节点容器里增加测试页面：
+[root@node-1 ~]# docker exec -it  d107a8d3ecf0 /bin/bash
+root@tomcat01-95fc6cd5d-p85g6:/usr/local/tomcat#mkdir webapps/ROOT;cd webapps
+root@tomcat01-95fc6cd5d-p85g6:/usr/local/tomcat/webapps# echo "node-2 -1" > ROOT/index.jsp  
+
+4个pod ，4个页面：
+echo "node-1 -1" > ROOT/index.jsp  
+echo "node-1 -2" > ROOT/index.jsp  
+echo "node-2 -1" > ROOT/index.jsp  
+echo "node-2 -2" > ROOT/index.jsp  
+
+
+
+访问测试：http://172.16.201.134:30008/
+[root@master-1 v2]# for i in {1..10};do curl http://172.16.201.134:30008/;echo ;done
+node-2 -2
+
+node-1 -2
+
+node-1 -2
+
+node-2 -1
+
+node-1 -2
+
+node-2 -1
+
+node-1 -2
+
+node-2 -2
+
+node-1 -2
+
+node-1 -1
+
+
+添加session亲和性参数：sessionAffinity: ClientIP ,绘画保持
+[root@master-1 v2]# vim service.yaml 
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-k8s
+spec:
+  selector:
+    app: spring-k8s
+  type: NodePort
+  ports:
+    - nodePort: 30008
+      port: 80
+      protocol: TCP
+      targetPort: 8080
+  sessionAffinity: ClientIP
+
+
+
+
+[root@master-1 v2]#  kubectl apply -f  service.yaml 
+service/spring-k8s configured
+
+[root@master-1 v1]#  kubectl describe service/tomcat -n mt-math
+Name:              tomcat
+Namespace:         mt-math
+Labels:            app=tomcat
+Annotations:       <none>
+Selector:          app=tomcat
+Type:              ClusterIP
+IP:                None
+Port:              web  8080/TCP
+TargetPort:        8080/TCP
+Endpoints:         10.244.1.27:8080,10.244.2.18:8080,10.244.2.19:8080
+Session Affinity:  None
+Events:            <none>
+[root@master-1 v1]# 
+
+
+[root@master-1 v1]#  kubectl get svc,pod
+NAME                    TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE
+service/blog-mysql      ClusterIP   10.1.71.85     <none>        3306/TCP       20h
+service/kubernetes      ClusterIP   10.1.0.1       <none>        443/TCP        31h
+service/php-fpm-nginx   NodePort    10.1.97.87     <none>        80:30071/TCP   10h
+service/spring-k8s      NodePort    10.1.114.102   <none>        80:30008/TCP   9m36s
+
+NAME                                 READY   STATUS    RESTARTS   AGE
+pod/blog-mysql-5cb7fd64f8-qlksz      1/1     Running   0          20h
+pod/php-fpm-nginx-5fdcb6c57d-z5vs8   2/2     Running   0          10h
+pod/spring-k8s-66ffd64dbb-bh9pd      1/1     Running   0          10m
+pod/spring-k8s-66ffd64dbb-dgmdj      1/1     Running   0          10m
+pod/spring-k8s-66ffd64dbb-wgq79      1/1     Running   0          10m
+pod/spring-k8s-66ffd64dbb-xwlz5      1/1     Running   0          10m
+[root@master-1 v1]# 
+
+
+[root@master-1 v1]# for i in {1..10};do curl http://172.16.201.134:30008/;echo ;done
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+[root@master-1 v1]# 
+
+
+[root@master-1 v1]# kubectl get pod -o wide 
+NAME                             READY   STATUS             RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+blog-mysql-5cb7fd64f8-qlksz      0/1     CrashLoopBackOff   1          24h     10.244.2.11   node-2   <none>           <none>
+php-fpm-nginx-5fdcb6c57d-z5vs8   2/2     Running            0          13h     10.244.1.25   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-2rxpr      1/1     Running            0          107s    10.244.2.24   node-2   <none>           <none>
+spring-k8s-66ffd64dbb-4rgpg      1/1     Running            0          107s    10.244.2.23   node-2   <none>           <none>
+spring-k8s-66ffd64dbb-75vxd      1/1     Running            0          71s     10.244.2.29   node-2   <none>           <none>
+spring-k8s-66ffd64dbb-7chks      1/1     Running            0          107s    10.244.1.31   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-7scl5      1/1     Running            0          71s     10.244.1.33   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-86h6x      1/1     Running            0          71s     10.244.1.35   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-b2z96      1/1     Running            0          107s    10.244.1.32   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-bh9pd      1/1     Running            0          3h39m   10.244.2.21   node-2   <none>           <none>
+spring-k8s-66ffd64dbb-ck8q9      1/1     Running            0          71s     10.244.1.36   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-dgmdj      1/1     Running            0          3h39m   10.244.2.20   node-2   <none>           <none>
+spring-k8s-66ffd64dbb-htdp2      1/1     Running            0          71s     10.244.2.25   node-2   <none>           <none>
+spring-k8s-66ffd64dbb-lb5hs      1/1     Running            0          71s     10.244.2.26   node-2   <none>           <none>
+spring-k8s-66ffd64dbb-mkbj5      1/1     Running            0          107s    10.244.1.30   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-pcnqg      1/1     Running            0          107s    10.244.2.22   node-2   <none>           <none>
+spring-k8s-66ffd64dbb-pnk44      1/1     Running            0          71s     10.244.2.28   node-2   <none>           <none>
+spring-k8s-66ffd64dbb-s75bp      1/1     Running            0          71s     10.244.1.34   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-wgq79      1/1     Running            0          3h39m   10.244.1.29   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-xwlz5      1/1     Running            0          3h39m   10.244.1.28   node-1   <none>           <none>
+spring-k8s-66ffd64dbb-z6w58      1/1     Running            0          71s     10.244.2.27   node-2   <none>           <none>
+
+
+[root@master-1 v1]# for i in {1..20};do curl http://172.16.201.134:30008/;echo ;done
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+node-2 -1
+
+[root@master-1 v1]# 
