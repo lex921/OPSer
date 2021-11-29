@@ -192,10 +192,7 @@ Your admin user password is located in
 d1e33304-09b8-40c9-8348-63f160ee48e2[root@nexus3-5c6f988994-hbvd2 /]# 
 进去改密码：admin/11111111
 
-
-
-
-
+附：调试命令：
 kubectl get pod
 kubectl get svc
 kubectl get pv
@@ -205,3 +202,19 @@ kubectl get event
 
 docker logs --tail="100"  d62c524204dc
 kubectl logs --tail 200 -f nexus3-5c6f988994-fctk5
+
+
+升级
+这里再额外补充点内容，由于nexus3更新算是比较频繁的，我们如何无缝升级呢？
+这里就借用k8s Deployment的升级方式就好了。
+
+第一步：从官网下载最新的nexus安装包；
+第二步：修改nexus配置文件，将上面旧版本的配置覆盖过来就行了；
+第三步：修改Dockerfile文件，构建新的Docker镜像，将新打包的nexus放入镜像中。
+如：docker build . -t nexus:0.1
+Ps: 不要忘记启动命令路径也要调整哟
+第四步：使用k8s命令升级Deployment：
+如：kubectl set image deployment/nexus3 nexus:v3.38
+第五步：回滚升级，如果发现升级了的不好用，或者出现问题，也可以回滚哦：
+如：kubectl rollout undo deployment/nexus3
+
