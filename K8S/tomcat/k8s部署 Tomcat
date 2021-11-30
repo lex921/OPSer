@@ -381,7 +381,7 @@ web-2   1/1     Running   0          4m49s   10.244.2.19   node-2   <none>      
 
 
 
-增加测试页面
+#增加测试页面
 景象是原始的，去各个节点容器里增加测试页面：
 [root@node-1 ~]# docker exec -it  d107a8d3ecf0 /bin/bash
 root@tomcat01-95fc6cd5d-p85g6:/usr/local/tomcat#mkdir webapps/ROOT;cd webapps
