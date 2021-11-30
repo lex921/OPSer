@@ -2,6 +2,7 @@ k8s启动的tomcat会话保持配置
 问题：k8s启动的tomcat服务，每次访问都带了session会话，每次调整不同的pod导致session实效，系统登录失败。
 处理：在server中添加session保持:sessionAffinity: ClientIP
 
+1、部署测试服务Deployment
 [root@master-1 v2]# vim deploy.yaml 
 apiVersion: apps/v1
 kind: Deployment
@@ -24,6 +25,7 @@ spec:
             - containerPort: 8080
 [root@master-1 v2]# 
 
+2、部署测试服务Service
 [root@master-1 v2]# vim service.yaml 
 apiVersion: v1
 kind: Service
@@ -40,8 +42,30 @@ spec:
       targetPort: 8080
   sessionAffinity: ClientIP
 
+部署：
+[root@master-1 v1]#  kubectl apply -f  service.yaml -f deploy.yaml 
+service/spring-k8s configured
+pod/Deployment configured
 
-景象是原始的，去各个节点容器里增加测试页面：
+查看：
+[root@master-1 v1]#  kubectl get svc,pod
+NAME                    TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE
+service/blog-mysql      ClusterIP   10.1.71.85     <none>        3306/TCP       20h
+service/kubernetes      ClusterIP   10.1.0.1       <none>        443/TCP        31h
+service/php-fpm-nginx   NodePort    10.1.97.87     <none>        80:30071/TCP   10h
+service/spring-k8s      NodePort    10.1.114.102   <none>        80:30008/TCP   9m36s
+
+NAME                                 READY   STATUS    RESTARTS   AGE
+pod/blog-mysql-5cb7fd64f8-qlksz      1/1     Running   0          20h
+pod/php-fpm-nginx-5fdcb6c57d-z5vs8   2/2     Running   0          10h
+pod/spring-k8s-66ffd64dbb-bh9pd      1/1     Running   0          10m
+pod/spring-k8s-66ffd64dbb-dgmdj      1/1     Running   0          10m
+pod/spring-k8s-66ffd64dbb-wgq79      1/1     Running   0          10m
+pod/spring-k8s-66ffd64dbb-xwlz5      1/1     Running   0          10m
+[root@master-1 v1]# 
+
+
+3、景象是原始的，去各个节点容器里增加测试页面：
 [root@node-1 ~]# docker exec -it  d107a8d3ecf0 /bin/bash
 root@tomcat01-95fc6cd5d-p85g6:/usr/local/tomcat#mkdir webapps/ROOT;cd webapps
 root@tomcat01-95fc6cd5d-p85g6:/usr/local/tomcat/webapps# echo "node-2 -1" > ROOT/index.jsp  
@@ -53,7 +77,7 @@ echo "node-2 -1" > ROOT/index.jsp
 echo "node-2 -2" > ROOT/index.jsp  
 
 
-
+4、访问测试页面
 访问测试：http://172.16.201.134:30008/
 [root@master-1 v2]# for i in {1..10};do curl http://172.16.201.134:30008/;echo ;done
 node-2 -2
@@ -77,7 +101,7 @@ node-1 -2
 node-1 -1
 
 
-添加session亲和性参数：sessionAffinity: ClientIP ,绘画保持
+5、添加session亲和性参数：sessionAffinity: ClientIP ,绘画保持
 [root@master-1 v2]# vim service.yaml 
 apiVersion: v1
 kind: Service
@@ -94,11 +118,6 @@ spec:
       targetPort: 8080
   sessionAffinity: ClientIP
 
-
-
-
-[root@master-1 v2]#  kubectl apply -f  service.yaml 
-service/spring-k8s configured
 
 [root@master-1 v1]#  kubectl describe service/tomcat -n mt-math
 Name:              tomcat
@@ -132,7 +151,7 @@ pod/spring-k8s-66ffd64dbb-wgq79      1/1     Running   0          10m
 pod/spring-k8s-66ffd64dbb-xwlz5      1/1     Running   0          10m
 [root@master-1 v1]# 
 
-
+访问测试：会话保持在一个节点，配置成功
 [root@master-1 v1]# for i in {1..10};do curl http://172.16.201.134:30008/;echo ;done
 node-2 -1
 
