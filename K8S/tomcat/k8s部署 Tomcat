@@ -176,7 +176,7 @@ tomcat-configmap   1      29s
 
 
 
-
+2、建pv
 [root@master-1 tomcat]# vim tomcat-pv-nfs.yaml 
 
 apiVersion: v1
@@ -240,7 +240,7 @@ pv-nfs-tomcat01   200M       RWX            Recycle          Available          
 pv-nfs-tomcat02   200M       RWX            Recycle          Available                            sc-nfs-tomcat02            14s
 pv-nfs-tomcat03   200M       RWX            Recycle          Available                            sc-nfs-tomcat03            14s
 
-
+3、建storageclass
 [root@master-1 v1]# vim storageclass.yaml 
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -268,15 +268,11 @@ sc-nfs-tomcat02   kubernetes.io/nfs   Retain          Immediate           false 
 sc-nfs-tomcat03   kubernetes.io/nfs   Retain          Immediate           false                  1s
 
 
-
-
-
 [root@master-1 tomcat]# kubectl delete pvc log-pvc-web-0 -n mt-math                
 persistentvolumeclaim "log-pvc-web-0" deleted
 
 
-
-
+4、建statefulset、Service
 [root@master-1 tomcat]# vim tomcat-statefulset.yaml
 apiVersion: v1
 kind: Service
@@ -354,7 +350,7 @@ kubectl delete -f tomcat-statefulset.yaml
 service/tomcat created
 statefulset.apps/web created
 
-
+5、查看状态
 [root@master-1 tomcat]#  kubectl get pv,pvc -n mt-math  
 
 NAME                               CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM                    STORAGECLASS      REASON   AGE
@@ -381,7 +377,7 @@ web-2   1/1     Running   0          4m49s   10.244.2.19   node-2   <none>      
 
 
 
-#增加测试页面
+6、增加测试页面
 景象是原始的，去各个节点容器里增加测试页面：
 [root@node-1 ~]# docker exec -it  d107a8d3ecf0 /bin/bash
 root@tomcat01-95fc6cd5d-p85g6:/usr/local/tomcat#mkdir webapps/ROOT;cd webapps
@@ -397,7 +393,7 @@ echo "node-2 -1" > ROOT/index.jsp
 NAME     TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)    AGE    SELECTOR
 tomcat   ClusterIP   None         <none>        8080/TCP   100m   app=tomcat
 
-
+7、查看服务详细信息
 [root@master-1 v1]#  kubectl describe service/tomcat -n mt-math
 Name:              tomcat
 Namespace:         mt-math
