@@ -1,3 +1,6 @@
+# Mongodb下载地址：
+https://www.mongodb.com/try/download/community
+
 # 部署mongodb复制集     
 ##  复制集结构      
 ### 只有Primary节点能够执行写操作   
