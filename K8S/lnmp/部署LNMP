@@ -1,5 +1,5 @@
 #(十五)、k8s部署 LNMP
-
+1、建存储目录
 [root@master-1 nfs]# vim  /etc/exports
 /nfs *(rw,no_root_squash,no_all_squash,sync)
 
@@ -21,7 +21,7 @@ drwxr-xr-x 2 root root  6 Nov 23 17:20 pv5
 /nfs_dir/vol3   172.16.201.0/24
 /nfs_dir/vol4   172.16.201.0/24
 
-
+节点mount上
 [root@node-1 ~]#  mount -t nfs 172.16.201.134:/nfs  /nfs
 [root@node-1 ~]# df -h|grep 172.16.201.134
 172.16.201.134:/nfs_dir/vol1       17G  9.3G  7.8G  55% /nfs_dir/vol1
@@ -41,7 +41,7 @@ drwxr-xr-x 2 root root  6 Nov 23 17:20 pv5
 172.16.201.134:/nfs                17G  9.3G  7.8G  55% /nfs
 
 
-
+2、建pv
 [root@master-1 lnmp]# vim pv.yaml
 apiVersion: v1
 kind: PersistentVolume
@@ -140,7 +140,7 @@ pv0004   5Gi        RWX            Retain           Available           nfs-ngin
 pv0005   5Gi        RWX            Retain           Available           nfs-php                 13s
 [root@master-1 lnmp]# 
 
-
+3、建storageclass
 [root@master-1 lnmp]# vim  storageclass.yaml
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
@@ -191,7 +191,7 @@ nfs-mysql   kubernetes.io/nfs   Retain          Immediate           false       
 nfs-nginx   kubernetes.io/nfs   Retain          Immediate           false                  14s
 nfs-php     kubernetes.io/nfs   Retain          Immediate           false                  14s
 
-
+4、建secret
 [root@master-1 lnmp]# kubectl create secret generic mysql-pass --from-literal=password=123456
 secret/mysql-pass created
 
@@ -202,6 +202,7 @@ default-token-q94x6   kubernetes.io/service-account-token   3      4d5h
 mysql-pass            Opaque                                1      17s
 [root@master-1 lnmp]# 
 
+5、建deploy
 [root@master-1 lnmp]# vim mysql-deployment.yaml
 apiVersion: v1
 kind: Service
@@ -272,7 +273,8 @@ deployment.apps/blog-mysql created
 NAME                          READY   STATUS    RESTARTS   AGE
 blog-mysql-5cb7fd64f8-mx9x9   1/1     Running   0          6s
 
-#做个php:0.1景象，内部安装扩展
+6、#做个php:0.1景象，内部安装扩展
+建Dockerfile：
 [root@master-1 v0]# vim Dockerfile           
 FROM php:7.4-fpm
 WORKDIR /app
@@ -280,6 +282,7 @@ COPY index.php /app
 RUN /usr/local/bin/docker-php-ext-install pdo_mysql
 RUN /usr/local/bin/docker-php-ext-install mysqli
 
+打包
 [root@master-1 v0]# docker build . -t php:0.1
 ...............
 PATH="$PATH:/sbin" ldconfig -n /usr/src/php/ext/mysqli/modules
@@ -321,7 +324,7 @@ Successfully tagged php:0.1
 
 
 
-
+7、建nginx的configmap
 [root@master-1 v2]# vim configmap.yaml
 kind: ConfigMap # 对象类型
 apiVersion: v1 # api 版本
@@ -351,7 +354,7 @@ data: # key-value 数据集合
     }
 [root@master-1 v2]# 
 
-
+8、建nginx的deployment、service
 [root@master-1 v2]# cat php-fpm-nginx-deployment-and-service.yaml
 kind: Deployment # 对象类型
 apiVersion: apps/v1 # api 版本
@@ -409,9 +412,10 @@ spec:
   type: NodePort
 [root@master-1 v2]# 
 
+执行：
 [root@master-1 v2]# kubectl apply -f php-fpm-nginx-deployment-and-service.yaml
 php-fpm-nginx created
-
+查看：
 [root@master-1 v2]# kubectl get pod  
 NAME                             READY   STATUS    RESTARTS   AGE
 blog-mysql-5cb7fd64f8-qlksz      1/1     Running   0          6h53m
@@ -436,20 +440,18 @@ persistentvolumeclaim/php-pv-claim     Bound    pv0005   5Gi        RWX         
 [root@master-1 lnmp]# 
 
 
-查找代码路径：节点在node-1上
+9、查找代码路径：节点在node-1上
 
 [root@node-1 wordpress]#  docker ps -a|grep php
 c4b2f6c24a04        nginx                                               "/docker-entrypoint.…"   11 minutes ago      Up 11 minutes                                 k8s_nginx_php-fpm-nginx-5fdcb6c57d-jjtgr_default_2bedd26d-96ba-48ab-ad99-484b32a3bdf4_0
 a469d1feccb9        3f4e80124011                                        "docker-php-entrypoi…"   12 minutes ago      Up 12 minutes                                 k8s_php-fpm_php-fpm-nginx-5fdcb6c57d-jjtgr_default_2bedd26d-96ba-48ab-ad99-484b32a3bdf4_0
 9e80ecebfd33        registry.aliyuncs.com/google_containers/pause:3.2   "/pause"                 12 minutes ago      Up 12 minutes                                 k8s_POD_php-fpm-nginx-5fdcb6c57d-jjtgr_default_2bedd26d-96ba-48ab-ad99-484b32a3bdf4_0
 
-
 直接进本地目录：
 [root@node-1 nginx-www]# docker inspect fa9dd6e943c1|grep nginx-www
                 "/var/lib/kubelet/pods/46e72359-61d8-4540-a834-80c16244b12f/volumes/kubernetes.io~empty-dir/nginx-www:/var/www/html",
                 "Source": "/var/lib/kubelet/pods/46e72359-61d8-4540-a834-80c16244b12f/volumes/kubernetes.io~empty-dir/nginx-www",
 [root@node-1 nginx-www]# 
-
 
 
 [root@node-1 nginx-www]#cd /var/lib/kubelet/pods/46e72359-61d8-4540-a834-80c16244b12f/volumes/kubernetes.io~empty-dir/nginx-www/
@@ -459,7 +461,7 @@ total 8
 -rw-r--r-- 1 root root 24 Nov 25 10:11 index.php
 
 
-下载中文版：
+11、下载wordpress中文版：
 [root@node-1 nginx-www]# wget https://cn.wordpress.org/latest-zh_CN.zip
 --2021-11-25 12:50:30--  https://cn.wordpress.org/latest-zh_CN.zip
 Resolving cn.wordpress.org (cn.wordpress.org)... 198.143.164.252
@@ -475,14 +477,14 @@ Saving to: ‘latest-zh_CN.zip’
 [root@node-1 nginx-www]# 
 
 
-复制代码：
+11、复制代码：
 [root@node-1 nginx-www]#cp /nfs/wordpress-5.4-zh_CN.zip /var/lib/kubelet/pods/2bedd26d-96ba-48ab-ad99-484b32a3bdf4/volumes/kubernetes.io~empty-dir/nginx-www/
 
 [root@node-1 nginx-www]#cd /var/lib/kubelet/pods/2bedd26d-96ba-48ab-ad99-484b32a3bdf4/volumes/kubernetes.io~empty-dir/nginx-www/
 [root@node-1 nginx-www]#unzip wordpress-5.4-zh_CN.zip
 [root@node-1 nginx-www]#chmod -R 777 wordpress
 
-建立数据库
+12、建立数据库
 [root@master-1 v1]# kubectl exec -it blog-mysql-5cb7fd64f8-qlksz  -- bash
 root@blog-mysql-5cb7fd64f8-qlksz:/# 
 root@blog-mysql-5cb7fd64f8-qlksz:/# mysql -uroot -p123456
@@ -510,16 +512,16 @@ Query OK, 0 rows affected (0.00 sec)
 
 mysql> 
 
-访问：
+13、访问：
 http://172.16.201.134:32321/wordpress/wp-admin/
 
-数据库信息参考下面：
+14、数据库信息参考下面：
 wp
 root
 123456
 blog-mysql
 
-访问：
+15、访问：
 http://172.16.201.134:32321/wordpress/wp-admin/
 
 
