@@ -1,0 +1,656 @@
+centos7.4安装docker
+
+[root@localhost docker]# dmidecode|grep "System Information" -A9|egrep "Manufacturer|Product"
+        Manufacturer: Dell Inc.
+        Product Name: PowerEdge T130
+        
+[root@localhost docker]#  cat /etc/redhat-release
+CentOS Linux release 7.4.1708 (Core) 
+
+
+设置yum源
+$ sudo yum -y install yum-utils
+$ sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+[root@localhost docker]# yum list docker-ce --showduplicates | sort -r
+已加载插件：fastestmirror
+已安装的软件包
+可安装的软件包
+ * updates: mirrors.aliyun.com
+Loading mirror speeds from cached hostfile
+ * extras: mirrors.aliyun.com
+docker-ce.x86_64            18.05.0.ce-3.el7.centos             docker-ce-edge  
+docker-ce.x86_64            18.05.0.ce-3.el7.centos             @docker-ce-edge 
+docker-ce.x86_64            18.04.0.ce-3.el7.centos             docker-ce-edge  
+docker-ce.x86_64            18.03.1.ce-1.el7.centos             docker-ce-stable
+docker-ce.x86_64            18.03.1.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            18.03.0.ce-1.el7.centos             docker-ce-stable
+docker-ce.x86_64            18.03.0.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            18.02.0.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            18.01.0.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.12.1.ce-1.el7.centos             docker-ce-stable
+docker-ce.x86_64            17.12.1.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.12.0.ce-1.el7.centos             docker-ce-stable
+docker-ce.x86_64            17.12.0.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.11.0.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.10.0.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.09.1.ce-1.el7.centos             docker-ce-stable
+docker-ce.x86_64            17.09.1.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.09.0.ce-1.el7.centos             docker-ce-stable
+docker-ce.x86_64            17.09.0.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.07.0.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.06.2.ce-1.el7.centos             docker-ce-stable
+docker-ce.x86_64            17.06.2.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.06.1.ce-1.el7.centos             docker-ce-stable
+docker-ce.x86_64            17.06.1.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.06.0.ce-1.el7.centos             docker-ce-stable
+docker-ce.x86_64            17.06.0.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.05.0.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.04.0.ce-1.el7.centos             docker-ce-edge  
+docker-ce.x86_64            17.03.2.ce-1.el7.centos             docker-ce-stable
+docker-ce.x86_64            17.03.1.ce-1.el7.centos             docker-ce-stable
+docker-ce.x86_64            17.03.0.ce-1.el7.centos             docker-ce-stable
+ * base: mirrors.aliyun.com
+您在 /var/spool/mail/root 中有邮件
+
+
+yum install docker-ce
+
+
+
+直接安装：
+curl -fsSL https://get.docker.com/ | sh
+
+也可以下载安装：
+包下载地址
+https://download.docker.com/linux/centos/7/x86_64/edge/Packages/
+
+
+
+
+
+systemctl status docker
+systemctl start docker
+systemctl ensable docker
+
+[root@localhost docker]# docker version
+Client:
+ Version:      18.05.0-ce
+ API version:  1.37
+ Go version:   go1.9.5
+ Git commit:   f150324
+ Built:        Wed May  9 22:14:54 2018
+ OS/Arch:      linux/amd64
+ Experimental: false
+ Orchestrator: swarm
+
+Server:
+ Engine:
+  Version:      18.05.0-ce
+  API version:  1.37 (minimum version 1.12)
+  Go version:   go1.9.5
+  Git commit:   f150324
+  Built:        Wed May  9 22:18:36 2018
+  OS/Arch:      linux/amd64
+  Experimental: false
+[root@localhost docker]# 
+
+
+[root@localhost docker]# docker info
+Containers: 0
+ Running: 0
+ Paused: 0
+ Stopped: 0
+Images: 2
+Server Version: 18.05.0-ce
+Storage Driver: overlay2
+ Backing Filesystem: xfs
+ Supports d_type: true
+ Native Overlay Diff: true
+Logging Driver: json-file
+Cgroup Driver: cgroupfs
+Plugins:
+ Volume: local
+ Network: bridge host macvlan null overlay
+ Log: awslogs fluentd gcplogs gelf journald json-file logentries splunk syslog
+Swarm: inactive
+Runtimes: runc
+Default Runtime: runc
+Init Binary: docker-init
+containerd version: 773c489c9c1b21a6d78b5c538cd395416ec50f88
+runc version: 4fc53a81fb7c994640722ac585fa9ca548971871
+init version: 949e6fa
+Security Options:
+ seccomp
+  Profile: default
+Kernel Version: 3.10.0-693.el7.x86_64
+Operating System: CentOS Linux 7 (Core)
+OSType: linux
+Architecture: x86_64
+CPUs: 4
+Total Memory: 15.5GiB
+Name: localhost.localdomain
+ID: I5TQ:HXU7:73M2:VVXR:NVG7:A2QK:SACT:B467:UL2T:PGFV:4C3Z:L3RQ
+Docker Root Dir: /var/lib/docker
+Debug Mode (client): false
+Debug Mode (server): false
+Registry: https://index.docker.io/v1/
+Labels:
+Experimental: false
+Insecure Registries:
+ 127.0.0.0/8
+Registry Mirrors:
+ https://5kau8jcc.mirror.aliyuncs.com/
+Live Restore Enabled: false
+
+
+
+cat /etc/redhat-release
+docker run hello-world
+yum  clean  all
+yum  makecache
+
+
+基本命令
+docker search 搜索镜像
+docker pull 获取镜像
+docker images 查看本地已有镜像
+docker rm 删除镜像
+docker ps 查看容器
+# 导出
+[root@k8s-master ~]# docker save  centos > centos.tar.gz
+[root@k8s-master ~]# scp centos.tar.gz root@192.168.100.201:/root/
+centos.tar.gz       
+# 导入
+[root@k8s-node-1 ~]# docker load -qi centos.tar.gz
+Loaded image: docker.io/centos:latest
+[root@k8s-node-1 ~]# docker images
+REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
+docker.io/centos    latest              49f7960eb7e4        6 weeks ago         200 MB
+
+ 
+docker ps –a: 命令能查看所有运行的、停止的镜像的命令状态，包含容器名称、镜像名、操作命令等。
+docker ps –l： 查看最后一个容器的信息。
+
+
+
+[root@localhost docker]# docker pull centos
+Using default tag: latest
+latest: Pulling from library/centos
+7dc0dca2b151: Downloading [============>                                      ]  18.37MB/74.69MB
+
+Using default tag: latest
+latest: Pulling from library/centos
+7dc0dca2b151: Pull complete 
+Digest: sha256:b67d21dfe609ddacf404589e04631d90a342921e81c40aeaf3391f6717fa5322
+Status: Downloaded newer image for centos:latest
+
+[root@localhost docker]# docker images
+REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
+centos              latest              49f7960eb7e4        2 weeks ago         200MB
+alpine              latest              3fd9065eaf02        5 months ago        4.15MB
+
+
+[root@localhost docker]# docker rmi centos
+Untagged: centos:latest
+Untagged: centos@sha256:b67d21dfe609ddacf404589e04631d90a342921e81c40aeaf3391f6717fa5322
+Deleted: sha256:49f7960eb7e4cb46f1a02c1f8174c6fac07ebf1eb6d8deffbcb5c695f1c9edd5
+Deleted: sha256:bcc97fbfc9e1a709f0eb78c1da59caeb65f43dc32cd5deeb12b8c1784e5b8237
+
+
+
+
+
+
+安装／升级你的Docker客户端
+推荐安装1.10.0以上版本的Docker客户端，参考文档 docker-ce
+如何配置镜像加速器
+针对Docker客户端版本大于1.10.0的用户
+您可以通过修改daemon配置文件/etc/docker/daemon.json来使用加速器：
+
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json <<-'EOF'
+{
+  "registry-mirrors": ["https://5kau8jcc.mirror.aliyuncs.com"]
+}
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+
+
+
+
+
+
+
+
+
+自定义景象库：
+https://hub.docker.com/
+
+yum install  docker-registry
+
+systemctl enable docker-distribution
+systemctl start  docker-distribution 
+
+
+
+
+
+现在官方都不推荐使用centos镜像作为基础镜像了
+推荐使用alpine linux
+
+
+[root@localhost docker]# docker pull alpine
+Using default tag: latest
+latest: Pulling from library/alpine
+ff3a5c916c92: Pull complete 
+Digest: sha256:e1871801d30885a610511c867de0d6baca7ed4e6a2573d506bbec7fd3b03873f
+Status: Downloaded newer image for alpine:latest
+
+[root@localhost docker]# 
+
+
+
+
+
+[root@k8s-master ~]# docker network ls
+NETWORK ID          NAME                DRIVER              SCOPE
+d1b66768faee        bridge              bridge              local
+18f27d2e08be        host                host                local
+98bfac4bbe77        none                null                local
+
+
+
+#将容器制作成景象：
+将容器做成镜像
+
+回到宿主机器
+命令：docker commit -m  ""   -a  ""   容器ID（可以简写）  镜像名称  
+-m  提示信息    
+-a  作者  
+
+[root@k8s-node-1 yum.repos.d]# docker ps -a
+CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS                  NAMES
+2b68de8dbe2b        centos              "/usr/sbin/init"    26 minutes ago      Up 26 minutes       0.0.0.0:2222->22/tcp   t1
+
+[root@k8s-node-1 yum.repos.d]#  docker commit -m "def" -a "lf" 2b68de8dbe2b centos_def  
+sha256:282e3f779d9fb2bb009a228d71f2b4309622b9f441137d4317af5e7d4da6fbac
+ 
+[root@k8s-node-1 yum.repos.d]# docker images
+REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
+centos_def          latest              282e3f779d9f        10 seconds ago      371 MB
+docker.io/centos    latest              49f7960eb7e4        6 weeks ago         200 MB
+
+
+
+做php7.1景象
+docker run -it -d --name centos_php7.1 centos /usr/sbin/init
+docker exec -it centos_php7.1 /bin/bash
+
+做好提交
+docker commit -m "php7.1" -a "liufeng" 容器ID（可以简写) centos_php7.1
+
+倒出：
+docker export centos_php7.1 > centos_php7.1.tar
+倒入：
+docker import centos_php7.1 < centos_php7.1.tar
+
+##########################################################
+-v参数中，冒号":"前面的目录是宿主机目录，后面的目录是容器内目录
+
+
+docker run \
+  -it -d --privileged --name web1 \
+  -p 0.0.0.0:90:80 \
+  -v /opt/www/web1:/var/www/html/ \
+  -v /opt/www/nginx_conf/conf/nginx.conf:/etc/nginx/nginx.conf:ro \
+  -v /opt/www/nginx_conf/conf.d/fastcgi.conf:/etc/nginx/fastcgi.conf:ro \
+  -v /opt/www/nginx_conf/conf.d:/etc/nginx/conf.d \
+  -v /opt/www/log/:/var/log/nginx/ \
+  --link php56:php \
+ nginx
+ 
+ 
+ 
+--link php56:php 把 php56 的网络并入 nginx web1，并通过修改 web1 的 /etc/hosts，把域名 php 映射成 127.0.0.1，让 nginx 通过 php:9000 访问 php-fpm。
+
+
+
+docker run \
+-it -d --privileged --name php56 \
+-p 0.0.0.0:9000:9000 \
+-v /opt/www/web1:/var/www/html/ \
+-v /opt/www/php_conf:/usr/local/etc/php \
+-v /opt/www/log/php-fpm/:/var/log/php-fpm/ \
+php:5.6-fpm
+
+
+docker inspect php56 |grep '"IPAddress"'               
+docker inspect web1 |grep '"IPAddress"'
+
+
+
+docker cp php56:/usr/local/etc/php-fpm.d/www.conf ./
+ 
+docker cp www.conf php56:/usr/local/etc/php-fpm.d/
+ 
+docker cp qq.conf php56:/usr/local/etc/php-fpm.d/ 
+ 
+ 
+ 
+docker logs -f -t --tail 100 web1
+ 
+docker exec -it web1 /bin/bash
+docker exec -it php56 /bin/bash 
+
+
+[root@web-lanxun-71-bj www]# docker port web1
+22/tcp -> 223.202.103.71:2222
+80/tcp -> 0.0.0.0:90
+
+22 端口注意需要连接上去，装ssh
+ssh root@223.202.103.71 -p2222
+
+
+
+#错误：
+
+2018/10/25 08:00:00 [error] 19#19: *1 FastCGI sent in stderr: "Primary script unknown" while reading response header from upstream, client: 113.225.133.44, server: qq.weixinxk.com, request: "GET /index.php HTTP/1.1", upstream: "fastcgi://172.17.0.2:9000", host: "qq.weixinxk.com:90"
+
+
+#处理：
+
+
+docker run \
+  -it -d --privileged --name web1 \
+  -p 0.0.0.0:90:80 \
+  -v /opt/www/web1:/var/www/html/ \
+  -v /opt/www/nginx_conf/conf/nginx.conf:/etc/nginx/nginx.conf:ro \
+  -v /opt/www/nginx_conf/conf.d/fastcgi.conf:/etc/nginx/fastcgi.conf:ro \
+  -v /opt/www/nginx_conf/conf.d:/etc/nginx/conf.d \
+  -v /opt/www/log/:/var/log/nginx/ \
+  --link php56:php \
+ nginx
+ 
+
+
+docker run \
+-it -d --privileged --name php56 \
+-p 0.0.0.0:9000:9000 \
+-v /opt/www/web1:/var/www/html/ \
+-v /opt/www/php_conf:/usr/local/etc/php \
+-v /opt/www/log/php-fpm/:/var/log/php-fpm/ \
+php:5.6-fpm
+
+
+
+#####目标/var/www/html/ ，run的时候必须一致。
+-v /opt/www/web1:/var/www/html/ \
+
+
+##########################################################
+#以centos 启动一个容器，端口80
+ docker run -i -t -d -p 99:80  --name t1 centos
+ docker run -it -d -p 0.0.0.0:2222:22 --name t1 centos /usr/sbin/init
+ docker run -it -d -p 0.0.0.0:2222:22 --name t2 centos /usr/sbin/init
+
+ docker run --privileged=true -it -d -p 0.0.0.0:2222:22 --name t1 centos /usr/sbin/init
+
+ 
+[root@k8s-master ~]# docker ps -a
+CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS                          PORTS                NAMES
+d6ad381d9071        centos              "/bin/bash"         6 seconds ago       Up 5 seconds                    0.0.0.0:99->80/tcp   test2
+98e6b7e6d440        centos              "/bin/bash"         3 minutes ago       Exited (0) About a minute ago                        test
+ 
+#删除容器
+[root@k8s-master ~]# docker rm  98e6b7e6d440 
+98e6b7e6d440
+ 
+
+
+#查看容器
+[root@k8s-master ~]# docker ps -a
+CONTAINER ID        IMAGE               COMMAND             CREATED              STATUS              PORTS                NAMES
+d6ad381d9071        centos              "/bin/bash"         About a minute ago   Up 1 second         0.0.0.0:99->80/tcp   test2
+[root@k8s-master ~]# 
+
+#连接容器
+EXIT后，容器Exited
+[root@k8s-master ~]# docker attach t1
+
+#EXIT后，容器up
+[root@k8s-master ~]# docker exec -it t1 /bin/bash
+[root@d6ad381d9071 /]# 
+
+#下载一个源
+http://mirrors.aliyun.com/repo/
+
+#查看网卡信息
+[root@localhost ~]# docker  inspect 03cb8596912e
+[
+    {
+        "Name": "bridge",
+        "Id": "03cb8596912e31f2c22793e43a4516e2fd5ae668d74a324552a86df7aedca8b8",
+        "Created": "2018-07-03T14:00:25.778250703+08:00",
+        "Scope": "local",
+        "Driver": "bridge",
+        "EnableIPv6": false,
+        "IPAM": {
+            "Driver": "default",
+            "Options": null,
+            "Config": [
+                {
+                    "Subnet": "172.17.0.0/16",
+                    "Gateway": "172.17.0.1"
+                }
+            ]
+        },
+        "Internal": false,
+        "Attachable": false,
+        "Containers": {
+            "0f083e5b8e0694066f6b463ad5c3ff0e226f3b0bb32de12d6cff6337d24e8764": {
+                "Name": "t1",
+                "EndpointID": "b4c50b1e0fb0d564f9a368cc1b5e0971257b951192a755da6af17990250c7d26",
+                "MacAddress": "02:42:ac:11:00:02",
+                "IPv4Address": "172.17.0.2/16",
+                "IPv6Address": ""
+            }
+        },
+        "Options": {
+            "com.docker.network.bridge.default_bridge": "true",
+            "com.docker.network.bridge.enable_icc": "true",
+            "com.docker.network.bridge.enable_ip_masquerade": "true",
+            "com.docker.network.bridge.host_binding_ipv4": "0.0.0.0",
+            "com.docker.network.bridge.name": "docker0",
+            "com.docker.network.driver.mtu": "1500"
+        },
+        "Labels": {}
+    }
+]
+
+
+#定义自己的网络：
+docker network create --subnet=192.168.100.0/24 staticnet
+docker network rm --subnet=192.168.100.0/24 staticnet
+
+
+#别用物理机器一个网络段，建完，物理服务器就连接不上了
+[root@localhost ~]# docker network create --subnet=192.168.10.0/24 staticnet
+f4fd453dae9f6ec613e9f91cf5e49687dc8d63db05842ee3cefbe9cfec7c886e
+[root@localhost ~]# docker network ls
+NETWORK ID          NAME                DRIVER              SCOPE
+03cb8596912e        bridge              bridge              local
+cfe9932cd336        host                host                local
+f46420bc9923        none                null                local
+f4fd453dae9f        staticnet           bridge              local
+
+[root@localhost ~]# docker network rm f4fd453dae9f
+f4fd453dae9f
+
+[root@localhost ~]# docker network ls
+NETWORK ID          NAME                DRIVER              SCOPE
+03cb8596912e        bridge              bridge              local
+cfe9932cd336        host                host                local
+f46420bc9923        none                null                local
+
+
+
+
+
+
+#查看容器ip，这个是动态分的：
+[root@localhost ~]# docker inspect test2|grep IPAddress
+            "SecondaryIPAddresses": null,
+            "IPAddress": "172.17.0.2",
+                    "IPAddress": "172.17.0.2",
+[root@localhost ~]# 
+
+
+#连接22即可
+[root@localhost ~]# ssh root@172.17.0.2
+The authenticity of host '172.17.0.2 (172.17.0.2)' can't be established.
+ECDSA key fingerprint is SHA256:6v86/xSRISyONq1yZPWBkbzGtLR8fPjqYbqZizoiKoA.
+ECDSA key fingerprint is MD5:41:01:de:15:64:f5:64:c2:d4:21:3e:eb:61:0d:22:ac.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added '172.17.0.2' (ECDSA) to the list of known hosts.
+root@172.17.0.2's password: 
+[root@c1ebc9626fa4 ~]# exit
+
+#连接NAT的物理服务器端口：2222 
+[root@localhost ~]# ssh root@192.168.150.201 -p 2222
+root@192.168.150.201's password: 
+Last login: Thu Jul  5 09:16:44 2018 from gateway
+
+
+#查看防火墙转发规则：
+[root@localhost ~]# iptables -t nat -nL             
+Chain PREROUTING (policy ACCEPT)
+target     prot opt source               destination         
+PREROUTING_direct  all  --  0.0.0.0/0            0.0.0.0/0           
+PREROUTING_ZONES_SOURCE  all  --  0.0.0.0/0            0.0.0.0/0           
+PREROUTING_ZONES  all  --  0.0.0.0/0            0.0.0.0/0           
+DOCKER     all  --  0.0.0.0/0            0.0.0.0/0            ADDRTYPE match dst-type LOCAL
+
+Chain INPUT (policy ACCEPT)
+target     prot opt source               destination         
+
+Chain OUTPUT (policy ACCEPT)
+target     prot opt source               destination         
+OUTPUT_direct  all  --  0.0.0.0/0            0.0.0.0/0           
+DOCKER     all  --  0.0.0.0/0           !127.0.0.0/8          ADDRTYPE match dst-type LOCAL
+
+Chain POSTROUTING (policy ACCEPT)
+target     prot opt source               destination         
+MASQUERADE  all  --  172.17.0.0/16        0.0.0.0/0           
+POSTROUTING_direct  all  --  0.0.0.0/0            0.0.0.0/0           
+POSTROUTING_ZONES_SOURCE  all  --  0.0.0.0/0            0.0.0.0/0           
+POSTROUTING_ZONES  all  --  0.0.0.0/0            0.0.0.0/0           
+MASQUERADE  tcp  --  172.17.0.2           172.17.0.2           tcp dpt:22
+
+Chain DOCKER (2 references)
+target     prot opt source               destination         
+RETURN     all  --  0.0.0.0/0            0.0.0.0/0           
+DNAT       tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:2222 to:172.17.0.2:22
+
+#查看转换端口
+[root@localhost ~]# docker port test2
+22/tcp -> 0.0.0.0:2222
+
+
+#########容器里操作：
+
+yum -y install  epel-release 
+yum -y install  passwd openssl openssh-server net-tools iproute crontabs iperf
+  
+  
+#装ssh
+容器里操作：
+yum install passwd openssl openssh-server -y
+
+这时报以下错误： 
+[root@ b3426410ff43 /]# /usr/sbin/sshd 
+Could not load host key: /etc/ssh/ssh_host_rsa_key 
+Could not load host key: /etc/ssh/ssh_host_ecdsa_key 
+Could not load host key: /etc/ssh/ssh_host_ed25519_key
+
+执行以下命令解决：
+ssh-keygen -q -t rsa -b 2048 -f /etc/ssh/ssh_host_rsa_key -N ''  
+ssh-keygen -q -t ecdsa -f /etc/ssh/ssh_host_ecdsa_key -N ''
+ssh-keygen -t dsa -f /etc/ssh/ssh_host_ed25519_key -N '' 
+
+修改 /etc/ssh/sshd_config 配置信息：
+sed -i "s/#UsePrivilegeSeparation.*/UsePrivilegeSeparation no/g" /etc/ssh/sshd_config
+sed -i "s/UsePAM.*/UsePAM no/g" /etc/ssh/sshd_config
+
+systemctl start sshd 
+
+passwd root
+
+
+
+
+#docker中没有 ifconfig、netstat 命令
+ yum install net-tools
+
+
+#安装ip 命令：
+#“provides”或者“whatprovides”开关用于找出某个包提供了某些功能或文件。
+[root@c1ebc9626fa4 ~]# yum provides ip
+Failed to set locale, defaulting to C
+Loaded plugins: fastestmirror, ovl
+Loading mirror speeds from cached hostfile
+ * base: mirrors.aliyun.com
+ * extras: mirror.bit.edu.cn
+ * updates: mirror.bit.edu.cn
+base/7/x86_64/filelists_db                                                                                           | 6.9 MB  00:00:02     
+extras/7/x86_64/filelists_db                                                                                         | 524 kB  00:00:00     
+updates/7/x86_64/filelists_db                                                                                        | 2.1 MB  00:00:00     
+iproute-4.11.0-14.el7.x86_64 : Advanced IP routing and network device configuration tools
+Repo        : base
+Matched from:
+Filename    : /usr/sbin/ip
+
+
+#安装iproute即可：
+[root@c1ebc9626fa4 ~]# yum install iproute
+
+
+#计划任务安装
+[root@c1ebc9626fa4 ~]# yum -y install crontabs
+sed -i '/session    required   pam_loginuid.so/c\#session    required   pam_loginuid.so' /etc/pam.d/crond
+
+systemctl start crond
+ 
+ps -ef|grep crond
+root       199     1  0 06:05 ?        00:00:00 /usr/sbin/crond -n
+
+
+#时区配置：
+cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+
+
+
+#DOCKER 给运行中的容器添加映射端口
+
+#方法1
+
+1、获得容器IP
+将container_name 换成实际环境中的容器名
+docker inspect `container_name` | grep IPAddress
+2、 iptable转发端口
+将容器的8000端口映射到docker主机的8001端口
+iptables -t nat -A  DOCKER -p tcp --dport 8001 -j DNAT --to-destination 172.17.0.19:8000
+
+#方法2
+
+1.提交一个运行中的容器为镜像
+docker commit containerid foo/live
+2.运行镜像并添加端口
+docker run -d -p 8000:80 foo/live /bin/bash
+以上就是本文的全部内容，希望对大家的学习有所帮助，也希望大家多多支持脚本之家。
+
+
+
+
