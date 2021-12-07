@@ -1,5 +1,5 @@
 
-管理K8S
+## 管理K8S
 
 ######查看合并后的kubeconfig设置，或者一个指定的kubeconfig配置文件
 [root@master-1 ~]# kubectl config view
