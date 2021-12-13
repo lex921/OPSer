@@ -227,3 +227,44 @@ default                kubernetes                  ClusterIP   10.1.0.1       <n
 kube-system            kube-dns                    ClusterIP   10.1.0.10      <none>        53/UDP,53/TCP,9153/TCP   6h5m
 kubernetes-dashboard   dashboard-metrics-scraper   ClusterIP   10.1.156.183   <none>        8000/TCP                 3h59m
 kubernetes-dashboard   kubernetes-dashboard        NodePort    10.1.27.195    <none>        443:30001/TCP            3h59m
+
+
+[root@master-1 ~]#  kubectl get cs    
+Warning: v1 ComponentStatus is deprecated in v1.19+
+NAME                 STATUS    MESSAGE             ERROR
+controller-manager   Healthy   ok                  
+scheduler            Healthy   ok                  
+etcd-0               Healthy   {"health":"true"} 
+
+
+
+[root@master-1 ~]#  kubectl get all -A
+NAMESPACE     NAME                                   READY   STATUS    RESTARTS   AGE
+kube-system   pod/coredns-6d56c8448f-424n8           1/1     Running   6          18d
+kube-system   pod/coredns-6d56c8448f-nsf2l           1/1     Running   5          18d
+kube-system   pod/etcd-master-1                      0/1     Running   3          18d
+kube-system   pod/kube-apiserver-master-1            1/1     Running   2          17d
+kube-system   pod/kube-controller-manager-master-1   1/1     Running   9          18d
+kube-system   pod/kube-flannel-ds-4mqzs              1/1     Running   3          18d
+kube-system   pod/kube-flannel-ds-p8dkz              1/1     Running   5          18d
+kube-system   pod/kube-flannel-ds-xjlgw              1/1     Running   6          18d
+kube-system   pod/kube-proxy-m8v66                   1/1     Running   7          18d
+kube-system   pod/kube-proxy-m9qvb                   1/1     Running   3          18d
+kube-system   pod/kube-proxy-mmfwl                   1/1     Running   6          18d
+kube-system   pod/kube-scheduler-master-1            1/1     Running   7          18d
+
+NAMESPACE     NAME                 TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)                  AGE
+default       service/kubernetes   ClusterIP   10.1.0.1     <none>        443/TCP                  18d
+kube-system   service/kube-dns     ClusterIP   10.1.0.10    <none>        53/UDP,53/TCP,9153/TCP   18d
+
+NAMESPACE     NAME                             DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kube-system   daemonset.apps/kube-flannel-ds   3         3         3       3            3           <none>                   18d
+kube-system   daemonset.apps/kube-proxy        3         3         3       3            3           kubernetes.io/os=linux   18d
+
+NAMESPACE     NAME                      READY   UP-TO-DATE   AVAILABLE   AGE
+kube-system   deployment.apps/coredns   2/2     2            2           18d
+
+NAMESPACE     NAME                                 DESIRED   CURRENT   READY   AGE
+kube-system   replicaset.apps/coredns-6d56c8448f   2         2         2       18d
+[root@master-1 ~]# 
+
