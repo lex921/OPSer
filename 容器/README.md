@@ -48,3 +48,38 @@ Debian
 * 官网：https://www.debian.org/
 * 镜像：https://hub.docker.com/_/debian/
 * 包管理命令：apt-get, dpkg
+
+## 编程语言基础镜像
+Java基础镜像
+* https://hub.docker.com/_/java/ （Deprecated)
+* https://hub.docker.com/_/openjdk/
+由于Oracle JDK license问题，Docker官方的Java基础镜像使用的是OpenJDK而不是Oracle JDK。
+
+Python基础镜像
+* https://hub.docker.com/_/python/
+
+NodeJs基础镜像
+* https://hub.docker.com/_/node/
+
+Go基础镜像
+* https://hub.docker.com/_/golang
+
+## 应用基础镜像
+Nginx基础镜像
+* https://hub.docker.com/_/nginx/
+
+Tomcat基础镜像
+* https://hub.docker.com/_/tomcat/
+
+Jetty基础镜像
+* https://hub.docker.com/_/jetty/
+
+## 其它基础镜像例子
+Maven基础镜像
+* https://hub.docker.com/_/maven/
+
+Jenkins基础镜像
+* https://hub.docker.com/r/jenkins/jenkins/
+
+GitLab基础镜像
+* https://hub.docker.com/r/gitlab/gitlab-ce/
