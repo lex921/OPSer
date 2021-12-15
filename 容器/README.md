@@ -9,7 +9,7 @@ https://hub.docker.com/search?q=&type=image&image_filter=official
 https://dev.aliyun.com
 
 
-操作系统基础镜像        
+## 操作系统基础镜像        
 比如你要从Linux操作系统基础镜像开始构建，可以参考下表来选择合适的基础镜像：
 
 1、busybox：大小：1.15MB	临时测试用        
@@ -18,3 +18,33 @@ https://dev.aliyun.com
 4、ubuntu：大小：81.1MB	主要用于生产环境，常用于人工智能计算和企业应用       
 5、debian：大小：101MB	  主要用于生产环境       
 
+## 镜像
+busybox
+* 描述：可以将busybox理解为一个超级简化版嵌入式Linux系统。
+* 官网：https://www.busybox.net/
+* 镜像：https://hub.docker.com/_/busybox/
+* 包管理命令：apk, lbu
+
+Alpine
+* 描述：Alpine是一个面向安全的、轻量级的Linux系统，基于musl libc和busybox。
+* 官网：https://www.alpinelinux.org/
+* 镜像：https://hub.docker.com/_/alpine/
+* 包管理命令：apk, lbu
+
+CentOS
+* 描述：可以理解CentOS是RedHat的社区版
+* 官网：https://www.centos.org/
+* 镜像：https://hub.docker.com/_/centos/
+* 包管理命令：yum, rpm
+
+Ubuntu
+* 描述：另一个非常出色的Linux发行版
+* 官网：http://www.ubuntu.com/
+* 镜像：https://hub.docker.com/_/ubuntu/
+* 包管理命令：apt-get, dpkg
+
+Debian
+* 描述：另一个非常出色的Linux发行版
+* 官网：https://www.debian.org/
+* 镜像：https://hub.docker.com/_/debian/
+* 包管理命令：apt-get, dpkg
