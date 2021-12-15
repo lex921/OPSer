@@ -1,0 +1,273 @@
+# centos7.9 openshift 3.9 All_in_one 
+
+安装OpenShift Origin，它是Red Hat OpenShift的开源版本
+OpenShift官网：https://www.openshift.com/
+Github：https://github.com/openshift/origin
+
+开源容器应用程序平台，Origin是支持OpenShift的上游社区项目。围绕Docker容器打包和Kubernetes容器集群管理的核心构建，Origin还增加了应用程序生命周期管理功能和DevOps工具。Origin提供了一个完整的开源容器应用程序平台。
+
+
+Master Node提供的组件：API Server (负责处理客户端请求, 包括node、user、 administrator和其他的infrastructure系统)；Controller Manager Server (包括scheduler和replication controller)；OpenShift客户端工具 (oc)
+Compute Node(Application Node) 部署application
+Infra Node 运行router、image registry和其他的infrastructure服务(由管理员安装的系统服务Application)
+etcd 可以部署在Master Node，也可以单独部署， 用来存储共享数据：master state、image、 build、deployment metadata等
+Pod 最小的Kubernetes object，可以部署一个或多个container
+
+
+一、master 节点介绍
+master 主控节点，管理组件都运行在master节点上。节点上运行着众多集群的服务组建：
+
+api server ：提供集群的web console以及restful api 服务。
+data store：数据源，集群的所有动态信息都存储在后端的一个etcd分布式数据库中，默认etcd安装在master上，也可以将etcd部署在集群之外。
+scheduler：调度控制器，负责按照用户输入的要求寻找合适的计算节点
+replication controller：负责监控容器数量，当发现容器数量少于部署定义数量时，出发新的部署。
+
+
+二、node 节点介绍
+node计算节点，容器实例都运行在node 节点上。主要负责介绍master节点指令，运行和维护docker容器。
+master节点本身也是一个node节点，一般情况人为的关闭了容器运行功能。
+通过oc get nodes 可以查看系统中的node节点信息。
+
+
+三、project
+namespace：在k8s中使用命名空间概念来隔离资源。
+project：在openshift中，引入了project概念。
+
+
+四、pod
+pod是一种特殊的容器，oc get pods 可以查看pod
+可以近似的认为容器运行在pod内部，一个pod内部可以运行多个容器，pod内多个容器共享pod的网络及存储资源。
+查看pod日志：oc logs
+进入容器内部：oc rsh
+
+五、service介绍
+service对象与一个或者多个pod关联，每个service会分配一个ip地址，这个地址相对恒定，通过这个IP地址和端口，请求会被转发到pod相应的端口之上。
+service起到了代理的作用，在相互依赖的容器之间实现了解耦。
+oc get svc 查看service
+service IP地址是一个虚拟IP，只有在集群内的节点和容器可以识别。
+除了IP地址访问service，还可以通过域名访问service。
+master内置DNS服务器，负责解析这个域名
+
+六、router
+负责将集群外部的请求转发到集群的容器.
+
+
+Hostname	              Role	                IP
+master-1      	Master, etcd, and node	  172.16.201.134
+node-1      	     Computer Node	        172.16.201.135
+node-2      	     Computer Node	        172.16.201.136
+
+##### openshift
+172.16.201.134  master-1
+172.16.201.135  node-1
+172.16.201.136  node-2
+
+## 所有节点均执行:
+[root@master-1 ~]# yum install wget git net-tools bind-utils yum-utils iptables-services bridge-utils bash-completion kexec-tools sos psacct -y
+[root@master-1 ~]# yum install ansible pyOpenSSL -y
+
+
+[root@master-1 ~]#  yum -y install centos-release-openshift-origin39 docker
+[root@master-1 ~]# vgcreate centos /dev/sdb #笔者vgname为centos
+  Physical volume "/dev/sdb" successfully created.
+  Volume group "centos" successfully created
+[root@master-1 ~]#  vgdisplay centos
+  --- Volume group ---
+  VG Name               centos
+  System ID             
+  Format                lvm2
+  Metadata Areas        1
+  Metadata Sequence No  1
+  VG Access             read/write
+  VG Status             resizable
+  MAX LV                0
+  Cur LV                0
+  Open LV               0
+  Max PV                0
+  Cur PV                1
+  Act PV                1
+  VG Size               <100.00 GiB
+  PE Size               4.00 MiB
+  Total PE              25599
+  Alloc PE / Size       0 / 0   
+  Free  PE / Size       25599 / <100.00 GiB
+  VG UUID               kPjVY7-JWEm-v2Xc-dCAb-n5G2-QpSl-lr3bhZ
+   
+[root@master-1 ~]# 
+
+[root@master-1 ~]#  echo VG=centos >> /etc/sysconfig/docker-storage-setup 
+[root@master-1 ~]#  systemctl start docker 
+[root@master-1 ~]#  systemctl enable docker 
+
+
+[root@master-1 playbooks]# lsblk
+NAME                      MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+sda                         8:0    0   20G  0 disk 
+├─sda1                      8:1    0    1G  0 part /boot
+└─sda2                      8:2    0   19G  0 part 
+  ├─centos_master--1-root 253:0    0   17G  0 lvm  /
+  └─centos_master--1-swap 253:1    0    2G  0 lvm  [SWAP]
+sdb                         8:16   0  100G  0 disk 
+sr0                        11:0    1  973M  0 rom  
+[root@master-1 playbooks]# docker info | egrep -i 'storage|pool|space|filesystem'
+  WARNING: You're not using the default seccomp profile
+Storage Driver: overlay2
+ Backing Filesystem: xfs
+[root@master-1 playbooks]# 
+
+
+
+
+[root@master-1 ~]# cat >/etc/sysctl.d/kubernetes.conf <<EOF
+net.bridge.bridge-nf-call-iptables=1
+net.bridge.bridge-nf-call-ip6tables=1
+net.ipv4.ip_forward=1
+net.ipv4.tcp_tw_recycle=0
+vm.swappiness=0
+vm.overcommit_memory=1
+vm.panic_on_oom=0
+fs.inotify.max_user_instances=8192
+fs.inotify.max_user_watches=1048576
+fs.file-max=52706963
+fs.nr_open=52706963
+net.ipv6.conf.all.disable_ipv6=1
+net.netfilter.nf_conntrack_max=2310720
+EOF
+[root@master-1 ~]# sysctl -p /etc/sysctl.d/kubernetes.conf
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward = 1
+net.ipv4.tcp_tw_recycle = 0
+vm.swappiness = 0
+vm.overcommit_memory = 1
+vm.panic_on_oom = 0
+fs.inotify.max_user_instances = 8192
+fs.inotify.max_user_watches = 1048576
+fs.file-max = 52706963
+fs.nr_open = 52706963
+net.ipv6.conf.all.disable_ipv6 = 1
+net.netfilter.nf_conntrack_max = 2310720
+[root@master-1 ~]# 
+[root@master-1 ~]# 
+[root@master-1 ~]# 
+[root@master-1 ~]# 
+[root@master-1 ~]# 
+[root@master-1 ~]# reboot
+
+
+
+hostnamectl set-hostname master-1
+hostnamectl set-hostname node-1
+hostnamectl set-hostname node-2
+
+[root@node-1 ~]# vim /etc/sysconfig/network-scripts/ifcfg-ens33 
+
+## 设置三个节点master节点与其他节点ssh免密。
+## 方便执行ansible-playbook
+分别复制key到master   
+[root@master-1 ~]# ssh-keygen
+[root@master-1 ~]# ssh-copy-id root@172.16.201.134  
+[root@master-1 ~]# ssh-keygen   
+[root@master-1 ~]# ssh-copy-id root@172.16.201.134            
+
+分别复制key到node-1、node-2    
+[root@master-1 ~]# ssh-keygen  
+[root@master-1 ~]# ssh-copy-id root@172.16.201.135
+[root@master-1 ~]# ssh-copy-id root@172.16.201.136
+
+ssh-copy-id root@172.16.201.134
+ssh-copy-id root@172.16.201.135
+ssh-copy-id root@172.16.201.136
+
+ssh-copy-id master-1
+ssh-copy-id node-1
+ssh-copy-id node-2
+
+ssh master-1
+ssh node-1
+ssh node-2
+
+
+
+## 在主节点上，使用root登录并运行Ansible Playbook以设置OpenShift群集。
+[root@master-1 .ssh]# yum -y install atomic-openshift-utils
+Installed:
+  atomic-openshift-utils.noarch 0:3.9.49-1.git.0.046ac59.el7                                                                                         
+
+Dependency Installed:
+  openshift-ansible.noarch 0:3.9.49-1.git.0.046ac59.el7                       openshift-ansible-docs.noarch 0:3.9.49-1.git.0.046ac59.el7             
+  openshift-ansible-playbooks.noarch 0:3.9.49-1.git.0.046ac59.el7             openshift-ansible-roles.noarch 0:3.9.49-1.git.0.046ac59.el7            
+
+Complete!
+[root@master-1 playbooks]# 
+
+
+
+
+配置ansible的hosts如下：
+
+[root@master ~]# cat /etc/ansible/hosts 
+
+[OSEv3:children]
+masters
+nodes
+etcd
+
+[OSEv3:vars]
+
+ansible_ssh_user=root
+openshift_deployment_type=origin
+
+
+openshift_master_identity_providers=[{'name': 'htpasswd_auth', 'login': 'true', 'challenge': 'true', 'kind': 'HTPasswdPasswordIdentityProvider', 'filename': '/etc/origin/master/.htpasswd'}]
+openshift_master_default_subdomain=master-1
+
+
+openshift_docker_insecure_registries=172.30.0.0/16
+
+[masters]
+master-1 openshift_schedulable=true containerized=false
+
+[etcd]
+master-1
+
+[nodes]
+
+master-1 openshift_node_labels="{'region': 'infra', 'zone': 'default'}"
+node-1 openshift_node_labels="{'region': 'primary', 'zone': 'east'}" openshift_schedulable=true
+node-2 openshift_node_labels="{'region': 'primary', 'zone': 'west'}" openshift_schedulable=true
+
+
+## 运行deploy_cluster.yml手册以启动安装：
+[root@master-1 playbooks]# ansible --version
+ansible 2.3.0.0
+  config file = /etc/ansible/ansible.cfg
+  configured module search path = Default w/o overrides
+  python version = 2.7.5 (default, Oct 14 2020, 14:45:30) [GCC 4.8.5 20150623 (Red Hat 4.8.5-44)]
+[root@master-1 playbooks]# 
+
+
+## 执行laybook安装
+安装前检查
+##### 集群安装前检查
+[root@master-1 playbooks]# ansible-playbook prerequisites.yml
+PLAY RECAP **************************************************************************************************************************************************************
+localhost                  : ok=11   changed=0    unreachable=0    failed=0    skipped=13   rescued=0    ignored=0   
+master-1                   : ok=73   changed=7    unreachable=0    failed=0    skipped=97   rescued=0    ignored=0   
+node-1                     : ok=61   changed=4    unreachable=0    failed=0    skipped=90   rescued=0    ignored=0   
+node-2                     : ok=61   changed=4    unreachable=0    failed=0    skipped=90   rescued=0    ignored=0   
+
+
+INSTALLER STATUS ********************************************************************************************************************************************************
+Initialization             : Complete (0:00:46)
+最后若全部显示failed=0说明成功
+
+
+##### 安装
+######集群安装
+[root@master-1 playbooks]# ansible-playbook deploy_cluster.yml
+检查安装是否成功：playbook跑完全部显示 failed=0
+oc get no查看节点状态全都是Ready说明成功
+
+##卸载
+[root@master-1 playbooks]# ansible-playbook ~/openshift-ansible/playbooks/adhoc/uninstall.yml
