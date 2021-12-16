@@ -394,7 +394,8 @@ Console: http://172.16.201.134:30880
 Account: admin
 Password: P@88w0rd
 
-
+7、创建WordPress应用步骤参考下面地址
+https://kubesphere.io/zh/docs/quick-start/wordpress-deployment/
 
 
 
