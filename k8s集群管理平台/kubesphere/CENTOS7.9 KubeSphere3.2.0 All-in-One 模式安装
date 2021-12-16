@@ -1,12 +1,20 @@
 #CENTOS7.9 KubeSphere3.2.0 All-in-One 模式安装
 
-kubernetes v1.19.9 
-kubesphere v3.2.0
-
+官网：
 https://github.com/kubesphere/kubekey/blob/v1.2.0/README_zh-CN.md
 https://github.com/kubesphere/kubekey/releases
 
+安装参考：
+https://kubesphere.io/zh/docs/quick-start/all-in-one-on-linux/
 
+注：操作系统前期准备配置操作略。。。。
+
+1、选版本：
+kubernetes v1.19.9 
+kubesphere v3.2.0
+
+
+2、下载
 [root@master-1 1]# wget https://github.com/kubesphere/kubekey/releases/download/v1.2.0/kubekey-v1.2.0-linux-amd64.tar.gz
 --2021-12-16 01:14:01--  https://github.com/kubesphere/kubekey/releases/download/v1.2.0/kubekey-v1.2.0-linux-amd64.tar.gz
 Resolving github.com (github.com)... 20.205.243.166
@@ -32,7 +40,7 @@ README_zh-CN.md
 kk
 
 
-安装：
+3、安装：
 [root@master-1 1]# ./kk create cluster --with-kubernetes v1.19.9 --with-kubesphere v3.2.0
 +----------+------+------+---------+----------+-------+-------+-----------+----------+------------+-------------+------------------+--------------+
 | name     | sudo | curl | openssl | ebtables | socat | ipset | conntrack | docker   | nfs client | ceph client | glusterfs client | time         |
@@ -269,7 +277,7 @@ Please check the result using the command:
 
 
 
-查看安装后：
+4、查看安装后：
 [root@master-1 1]# kubectl get all -A
 NAMESPACE                      NAME                                                   READY   STATUS    RESTARTS   AGE
 kube-system                    pod/calico-kube-controllers-7fc49b8c4-9czb7            1/1     Running   0          14m
@@ -367,7 +375,7 @@ kubesphere-monitoring-system   statefulset.apps/prometheus-k8s        0/1     6m
 
 
 
-添加节点
+5、添加节点
 [root@master-1 1]# ./kk add nodes -f sample.yaml
 +----------+------+------+---------+----------+-------+-------+-----------+----------+------------+-------------+------------------+--------------+
 | name     | sudo | curl | openssl | ebtables | socat | ipset | conntrack | docker   | nfs client | ceph client | glusterfs client | time         |
@@ -379,3 +387,14 @@ kubesphere-monitoring-system   statefulset.apps/prometheus-k8s        0/1     6m
 node-2: conntrack is required. 
 node-1: conntrack is required. 
 [root@master-1 1]# 
+
+
+6、访问地址
+Console: http://172.16.201.134:30880
+Account: admin
+Password: P@88w0rd
+
+
+
+
+
