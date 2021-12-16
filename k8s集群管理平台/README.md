@@ -14,6 +14,7 @@ https://rancher.com/docs/rancher/v1.6/zh/
 ## KubeOperator
 https://kubeoperator.io/        
 https://kubeoperator.io/docs/          
+https://github.com/KubeOperator/KubeOperator/releases            
 https://community.fit2cloud.com/#/products/kubeoperator/downloads          
 
 
