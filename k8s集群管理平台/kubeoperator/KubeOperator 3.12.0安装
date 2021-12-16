@@ -1,0 +1,18 @@
+# KubeOperator
+
+一、在线方式
+仅需两步快速安装 KubeOperator:
+准备一台不小于 8G 内存且可以访问互联网的 64位 Linux 主机；
+
+以 root 用户执行如下命令一键安装 KubeOperator。
+curl -sSL https://github.com/KubeOperator/KubeOperator/releases/latest/download/quick_start.sh | sh
+
+如果您已经部署旧版本，可通过如下命令一键升级至最新版本:
+koctl upgrade
+
+二、离线方式
+下载离线安装包：
+https://community.fit2cloud.com/#/download/kubeoperator/v3-12-0
+
+安装和升级文档：
+https://kubeoperator.io/docs/
