@@ -1,4 +1,4 @@
-# kubesphere openshift rancher 相关  
+# Kubesphere Openshift Rancher KubeOperator相关  
 
 ## openshift
 https://www.redhat.com/en/technologies/cloud-computing/openshift   
@@ -10,6 +10,11 @@ https://kubesphere.com.cn/
 ## rancher
 https://github.com/rancher/rancher#installation
 https://rancher.com/docs/rancher/v1.6/zh/
+
+## KubeOperator
+https://kubeoperator.io/
+https://kubeoperator.io/docs/
+https://community.fit2cloud.com/#/products/kubeoperator/downloads
 
 
 ###  优点    
