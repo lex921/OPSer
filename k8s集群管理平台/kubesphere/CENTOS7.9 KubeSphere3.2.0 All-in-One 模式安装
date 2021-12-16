@@ -1,0 +1,381 @@
+#CENTOS7.9 KubeSphere3.2.0 All-in-One 模式安装
+
+kubernetes v1.19.9 
+kubesphere v3.2.0
+
+https://github.com/kubesphere/kubekey/blob/v1.2.0/README_zh-CN.md
+https://github.com/kubesphere/kubekey/releases
+
+
+[root@master-1 1]# wget https://github.com/kubesphere/kubekey/releases/download/v1.2.0/kubekey-v1.2.0-linux-amd64.tar.gz
+--2021-12-16 01:14:01--  https://github.com/kubesphere/kubekey/releases/download/v1.2.0/kubekey-v1.2.0-linux-amd64.tar.gz
+Resolving github.com (github.com)... 20.205.243.166
+Connecting to github.com (github.com)|20.205.243.166|:443... connected.
+HTTP request sent, awaiting response... 302 Found
+Location: https://objects.githubusercontent.com/github-production-release-asset-2e65be/248386471/2bf619c8-554e-4d3b-8c60-630db0aac75e?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIWNJYAX4CSVEH53A%2F20211216%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20211216T030047Z&X-Amz-Expires=300&X-Amz-Signature=3fc8c253b6afe99d05b12553c489758a6a01f17941ced9a6b1cf97f53ca0fbde&X-Amz-SignedHeaders=host&actor_id=0&key_id=0&repo_id=248386471&response-content-disposition=attachment%3B%20filename%3Dkubekey-v1.2.0-linux-amd64.tar.gz&response-content-type=application%2Foctet-stream [following]
+--2021-12-16 01:14:04--  https://objects.githubusercontent.com/github-production-release-asset-2e65be/248386471/2bf619c8-554e-4d3b-8c60-630db0aac75e?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIWNJYAX4CSVEH53A%2F20211216%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20211216T030047Z&X-Amz-Expires=300&X-Amz-Signature=3fc8c253b6afe99d05b12553c489758a6a01f17941ced9a6b1cf97f53ca0fbde&X-Amz-SignedHeaders=host&actor_id=0&key_id=0&repo_id=248386471&response-content-disposition=attachment%3B%20filename%3Dkubekey-v1.2.0-linux-amd64.tar.gz&response-content-type=application%2Foctet-stream
+Resolving objects.githubusercontent.com (objects.githubusercontent.com)... 185.199.110.133, 185.199.111.133, 185.199.109.133, ...
+Connecting to objects.githubusercontent.com (objects.githubusercontent.com)|185.199.110.133|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 11634102 (11M) [application/octet-stream]
+Saving to: ‘kubekey-v1.2.0-linux-amd64.tar.gz’
+
+100%[============================================================================================================================>] 11,634,102   676KB/s   in 20s    
+
+2021-12-16 01:14:31 (572 KB/s) - ‘kubekey-v1.2.0-linux-amd64.tar.gz’ saved [11634102/11634102]
+
+[root@master-1 1]# ls
+
+[root@master-1 1]# tar -xvf kubekey-v1.2.0-linux-amd64.tar.gz
+README.md
+README_zh-CN.md
+kk
+
+
+安装：
+[root@master-1 1]# ./kk create cluster --with-kubernetes v1.19.9 --with-kubesphere v3.2.0
++----------+------+------+---------+----------+-------+-------+-----------+----------+------------+-------------+------------------+--------------+
+| name     | sudo | curl | openssl | ebtables | socat | ipset | conntrack | docker   | nfs client | ceph client | glusterfs client | time         |
++----------+------+------+---------+----------+-------+-------+-----------+----------+------------+-------------+------------------+--------------+
+| master-1 | y    | y    | y       | y        | y     | y     | y         | 19.03.13 |            |             |                  | CST 01:15:11 |
++----------+------+------+---------+----------+-------+-------+-----------+----------+------------+-------------+------------------+--------------+
+
+This is a simple check of your environment.
+Before installation, you should ensure that your machines meet all requirements specified at
+https://github.com/kubesphere/kubekey#requirements-and-recommendations
+
+Continue this installation? [yes/no]: yes
+INFO[01:15:28 CST] Downloading Installation Files               
+INFO[01:15:28 CST] Downloading kubeadm ...                      
+INFO[01:15:46 CST] Downloading kubelet ...                      
+INFO[01:16:47 CST] Downloading kubectl ...                      
+INFO[01:17:03 CST] Downloading helm ...                         
+INFO[01:17:14 CST] Downloading kubecni ...                      
+INFO[01:17:46 CST] Downloading etcd ...                         
+INFO[01:17:58 CST] Downloading docker ...                       
+INFO[01:18:13 CST] Downloading crictl ...                       
+INFO[01:18:24 CST] Configuring operating system ...             
+[master-1 172.16.201.134] MSG:
+net.ipv4.ip_forward = 1
+net.bridge.bridge-nf-call-arptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_local_reserved_ports = 30000-32767
+vm.max_map_count = 262144
+vm.swappiness = 1
+fs.inotify.max_user_instances = 524288
+no crontab for root
+INFO[01:18:27 CST] Get cluster status                           
+INFO[01:18:28 CST] Installing Container Runtime ...             
+INFO[01:18:28 CST] Start to download images on all nodes        
+[master-1] Downloading image: kubesphere/pause:3.2
+[master-1] Downloading image: kubesphere/kube-apiserver:v1.19.9
+[master-1] Downloading image: kubesphere/kube-controller-manager:v1.19.9
+[master-1] Downloading image: kubesphere/kube-scheduler:v1.19.9
+[master-1] Downloading image: kubesphere/kube-proxy:v1.19.9
+[master-1] Downloading image: coredns/coredns:1.6.9
+[master-1] Downloading image: kubesphere/k8s-dns-node-cache:1.15.12
+[master-1] Downloading image: calico/kube-controllers:v3.20.0
+[master-1] Downloading image: calico/cni:v3.20.0
+[master-1] Downloading image: calico/node:v3.20.0
+[master-1] Downloading image: calico/pod2daemon-flexvol:v3.20.0
+INFO[01:24:13 CST] Getting etcd status                          
+[master-1 172.16.201.134] MSG:
+Configuration file will be created
+INFO[01:24:14 CST] Generating etcd certs                        
+INFO[01:24:14 CST] Synchronizing etcd certs                     
+INFO[01:24:14 CST] Creating etcd service                        
+Push /root/1/kubekey/v1.19.9/amd64/etcd-v3.4.13-linux-amd64.tar.gz to 172.16.201.134:/tmp/kubekey/etcd-v3.4.13-linux-amd64.tar.gz   Done
+INFO[01:24:15 CST] Starting etcd cluster                        
+INFO[01:24:15 CST] Refreshing etcd configuration                
+[master-1 172.16.201.134] MSG:
+Created symlink from /etc/systemd/system/multi-user.target.wants/etcd.service to /etc/systemd/system/etcd.service.
+INFO[01:24:21 CST] Backup etcd data regularly                   
+INFO[01:24:27 CST] Installing kube binaries                     
+Push /root/1/kubekey/v1.19.9/amd64/kubeadm to 172.16.201.134:/tmp/kubekey/kubeadm   Done
+Push /root/1/kubekey/v1.19.9/amd64/kubelet to 172.16.201.134:/tmp/kubekey/kubelet   Done
+Push /root/1/kubekey/v1.19.9/amd64/kubectl to 172.16.201.134:/tmp/kubekey/kubectl   Done
+Push /root/1/kubekey/v1.19.9/amd64/helm to 172.16.201.134:/tmp/kubekey/helm   Done
+Push /root/1/kubekey/v1.19.9/amd64/cni-plugins-linux-amd64-v0.9.1.tgz to 172.16.201.134:/tmp/kubekey/cni-plugins-linux-amd64-v0.9.1.tgz   Done
+INFO[01:24:32 CST] Initializing kubernetes cluster              
+[master-1 172.16.201.134] MSG:
+W1216 01:24:33.685322   50293 utils.go:69] The recommended value for "clusterDNS" in "KubeletConfiguration" is: [10.233.0.10]; the provided value is: [169.254.25.10]
+W1216 01:24:33.843623   50293 configset.go:348] WARNING: kubeadm cannot validate component configs for API groups [kubelet.config.k8s.io kubeproxy.config.k8s.io]
+[init] Using Kubernetes version: v1.19.9
+[preflight] Running pre-flight checks
+        [WARNING IsDockerSystemdCheck]: detected "cgroupfs" as the Docker cgroup driver. The recommended driver is "systemd". Please follow the guide at https://kubernetes.io/docs/setup/cri/
+[preflight] Pulling images required for setting up a Kubernetes cluster
+[preflight] This might take a minute or two, depending on the speed of your internet connection
+[preflight] You can also perform this action in beforehand using 'kubeadm config images pull'
+[certs] Using certificateDir folder "/etc/kubernetes/pki"
+[certs] Generating "ca" certificate and key
+[certs] Generating "apiserver" certificate and key
+[certs] apiserver serving cert is signed for DNS names [kubernetes kubernetes.default kubernetes.default.svc kubernetes.default.svc.cluster.local lb.kubesphere.local localhost master-1 master-1.cluster.local] and IPs [10.233.0.1 172.16.201.134 127.0.0.1]
+[certs] Generating "apiserver-kubelet-client" certificate and key
+[certs] Generating "front-proxy-ca" certificate and key
+[certs] Generating "front-proxy-client" certificate and key
+[certs] External etcd mode: Skipping etcd/ca certificate authority generation
+[certs] External etcd mode: Skipping etcd/server certificate generation
+[certs] External etcd mode: Skipping etcd/peer certificate generation
+[certs] External etcd mode: Skipping etcd/healthcheck-client certificate generation
+[certs] External etcd mode: Skipping apiserver-etcd-client certificate generation
+[certs] Generating "sa" key and public key
+[kubeconfig] Using kubeconfig folder "/etc/kubernetes"
+[kubeconfig] Writing "admin.conf" kubeconfig file
+[kubeconfig] Writing "kubelet.conf" kubeconfig file
+[kubeconfig] Writing "controller-manager.conf" kubeconfig file
+[kubeconfig] Writing "scheduler.conf" kubeconfig file
+[kubelet-start] Writing kubelet environment file with flags to file "/var/lib/kubelet/kubeadm-flags.env"
+[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"
+[kubelet-start] Starting the kubelet
+[control-plane] Using manifest folder "/etc/kubernetes/manifests"
+[control-plane] Creating static Pod manifest for "kube-apiserver"
+[control-plane] Creating static Pod manifest for "kube-controller-manager"
+[control-plane] Creating static Pod manifest for "kube-scheduler"
+[wait-control-plane] Waiting for the kubelet to boot up the control plane as static Pods from directory "/etc/kubernetes/manifests". This can take up to 4m0s
+[kubelet-check] Initial timeout of 40s passed.
+[apiclient] All control plane components are healthy after 55.503730 seconds
+[upload-config] Storing the configuration used in ConfigMap "kubeadm-config" in the "kube-system" Namespace
+[kubelet] Creating a ConfigMap "kubelet-config-1.19" in namespace kube-system with the configuration for the kubelets in the cluster
+[upload-certs] Skipping phase. Please see --upload-certs
+[mark-control-plane] Marking the node master-1 as control-plane by adding the label "node-role.kubernetes.io/master=''"
+[mark-control-plane] Marking the node master-1 as control-plane by adding the taints [node-role.kubernetes.io/master:NoSchedule]
+[bootstrap-token] Using token: mqkysy.1tqw6r8n5kle6f0j
+[bootstrap-token] Configuring bootstrap tokens, cluster-info ConfigMap, RBAC Roles
+[bootstrap-token] configured RBAC rules to allow Node Bootstrap tokens to get nodes
+[bootstrap-token] configured RBAC rules to allow Node Bootstrap tokens to post CSRs in order for nodes to get long term certificate credentials
+[bootstrap-token] configured RBAC rules to allow the csrapprover controller automatically approve CSRs from a Node Bootstrap Token
+[bootstrap-token] configured RBAC rules to allow certificate rotation for all node client certificates in the cluster
+[bootstrap-token] Creating the "cluster-info" ConfigMap in the "kube-public" namespace
+[kubelet-finalize] Updating "/etc/kubernetes/kubelet.conf" to point to a rotatable kubelet client certificate and key
+[addons] Applied essential addon: CoreDNS
+[addons] Applied essential addon: kube-proxy
+
+Your Kubernetes control-plane has initialized successfully!
+
+To start using your cluster, you need to run the following as a regular user:
+
+  mkdir -p $HOME/.kube
+  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+You should now deploy a pod network to the cluster.
+Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+
+You can now join any number of control-plane nodes by copying certificate authorities
+and service account keys on each node and then running the following as root:
+
+  kubeadm join lb.kubesphere.local:6443 --token mqkysy.1tqw6r8n5kle6f0j \
+    --discovery-token-ca-cert-hash sha256:e3791fecf861f4737863e4a143d94f5d4c2ecf69dcd5bc96135777d4ee6cd6c6 \
+    --control-plane 
+
+Then you can join any number of worker nodes by running the following on each as root:
+
+kubeadm join lb.kubesphere.local:6443 --token mqkysy.1tqw6r8n5kle6f0j \
+    --discovery-token-ca-cert-hash sha256:e3791fecf861f4737863e4a143d94f5d4c2ecf69dcd5bc96135777d4ee6cd6c6
+[master-1 172.16.201.134] MSG:
+node/master-1 untainted
+[master-1 172.16.201.134] MSG:
+node/master-1 labeled
+[master-1 172.16.201.134] MSG:
+service "kube-dns" deleted
+[master-1 172.16.201.134] MSG:
+service/coredns created
+Warning: kubectl apply should be used on resource created by either kubectl create --save-config or kubectl apply
+clusterrole.rbac.authorization.k8s.io/system:coredns configured
+[master-1 172.16.201.134] MSG:
+serviceaccount/nodelocaldns created
+daemonset.apps/nodelocaldns created
+[master-1 172.16.201.134] MSG:
+configmap/nodelocaldns created
+INFO[01:25:57 CST] Get cluster status                           
+INFO[01:25:58 CST] Joining nodes to cluster                     
+INFO[01:25:58 CST] Deploying network plugin ...                 
+[master-1 172.16.201.134] MSG:
+configmap/calico-config created
+customresourcedefinition.apiextensions.k8s.io/bgpconfigurations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/bgppeers.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/blockaffinities.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/clusterinformations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/felixconfigurations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/globalnetworkpolicies.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/globalnetworksets.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/hostendpoints.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ipamblocks.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ipamconfigs.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ipamhandles.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ippools.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/kubecontrollersconfigurations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/networkpolicies.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/networksets.crd.projectcalico.org created
+clusterrole.rbac.authorization.k8s.io/calico-kube-controllers created
+clusterrolebinding.rbac.authorization.k8s.io/calico-kube-controllers created
+clusterrole.rbac.authorization.k8s.io/calico-node created
+clusterrolebinding.rbac.authorization.k8s.io/calico-node created
+daemonset.apps/calico-node created
+serviceaccount/calico-node created
+deployment.apps/calico-kube-controllers created
+serviceaccount/calico-kube-controllers created
+poddisruptionbudget.policy/calico-kube-controllers created
+[master-1 172.16.201.134] MSG:
+storageclass.storage.k8s.io/local created
+serviceaccount/openebs-maya-operator created
+clusterrole.rbac.authorization.k8s.io/openebs-maya-operator created
+clusterrolebinding.rbac.authorization.k8s.io/openebs-maya-operator created
+deployment.apps/openebs-localpv-provisioner created
+INFO[01:26:03 CST] Deploying KubeSphere ...                     
+v3.2.0
+[master-1 172.16.201.134] MSG:
+namespace/kubesphere-system created
+namespace/kubesphere-monitoring-system created
+[master-1 172.16.201.134] MSG:
+secret/kube-etcd-client-certs created
+[master-1 172.16.201.134] MSG:
+namespace/kubesphere-system unchanged
+serviceaccount/ks-installer unchanged
+customresourcedefinition.apiextensions.k8s.io/clusterconfigurations.installer.kubesphere.io unchanged
+clusterrole.rbac.authorization.k8s.io/ks-installer unchanged
+clusterrolebinding.rbac.authorization.k8s.io/ks-installer unchanged
+deployment.apps/ks-installer unchanged
+clusterconfiguration.installer.kubesphere.io/ks-installer created
+时间长一些
+#####################################################
+###              Welcome to KubeSphere!           ###
+#####################################################
+
+Console: http://172.16.201.134:30880
+Account: admin
+Password: P@88w0rd
+
+NOTES：
+  1. After you log into the console, please check the
+     monitoring status of service components in
+     "Cluster Management". If any service is not
+     ready, please wait patiently until all components 
+     are up and running.
+  2. Please change the default password after login.
+
+#####################################################
+https://kubesphere.io             2021-12-16 01:38:39
+#####################################################
+INFO[01:38:49 CST] Installation is complete.
+
+Please check the result using the command:
+
+       kubectl logs -n kubesphere-system $(kubectl get pod -n kubesphere-system -l app=ks-install -o jsonpath='{.items[0].metadata.name}') -f
+ 
+[root@master-1 1]# 
+
+
+
+查看安装后：
+[root@master-1 1]# kubectl get all -A
+NAMESPACE                      NAME                                                   READY   STATUS    RESTARTS   AGE
+kube-system                    pod/calico-kube-controllers-7fc49b8c4-9czb7            1/1     Running   0          14m
+kube-system                    pod/calico-node-4h88z                                  1/1     Running   0          14m
+kube-system                    pod/coredns-86cfc99d74-brh7c                           1/1     Running   0          14m
+kube-system                    pod/coredns-86cfc99d74-h2fwv                           1/1     Running   0          14m
+kube-system                    pod/kube-apiserver-master-1                            1/1     Running   0          14m
+kube-system                    pod/kube-controller-manager-master-1                   1/1     Running   0          14m
+kube-system                    pod/kube-proxy-vb2xf                                   1/1     Running   0          14m
+kube-system                    pod/kube-scheduler-master-1                            1/1     Running   0          14m
+kube-system                    pod/nodelocaldns-h864d                                 1/1     Running   0          14m
+kube-system                    pod/openebs-localpv-provisioner-64fb84d4cc-c4695       1/1     Running   0          14m
+kube-system                    pod/snapshot-controller-0                              1/1     Running   0          12m
+kubesphere-controls-system     pod/default-http-backend-76d9fb4bb7-fw7ns              1/1     Running   0          9m55s
+kubesphere-controls-system     pod/kubectl-admin-69b8ff6d54-f4fkg                     1/1     Running   0          118s
+kubesphere-monitoring-system   pod/alertmanager-main-0                                2/2     Running   0          6m14s
+kubesphere-monitoring-system   pod/kube-state-metrics-5547ddd4cc-9vpwp                3/3     Running   0          6m32s
+kubesphere-monitoring-system   pod/node-exporter-fkrwp                                2/2     Running   0          6m33s
+kubesphere-monitoring-system   pod/notification-manager-deployment-78664576cb-9j9n2   2/2     Running   0          2m47s
+kubesphere-monitoring-system   pod/notification-manager-operator-7d44854f54-95tkn     2/2     Running   0          5m24s
+kubesphere-monitoring-system   pod/prometheus-k8s-0                                   0/2     Running   0          6m13s
+kubesphere-monitoring-system   pod/prometheus-operator-5c5db79546-f894s               2/2     Running   0          6m45s
+kubesphere-system              pod/ks-apiserver-84d9b96f9b-tms94                      1/1     Running   0          4m3s
+kubesphere-system              pod/ks-console-648d747bb-hhjf7                         1/1     Running   0          9m54s
+kubesphere-system              pod/ks-controller-manager-84b4495b94-7d9rz             1/1     Running   0          4m2s
+kubesphere-system              pod/ks-installer-d98f7d88-k5sf2                        1/1     Running   0          14m
+
+NAMESPACE                      NAME                                              TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                        AGE
+default                        service/kubernetes                                ClusterIP   10.233.0.1      <none>        443/TCP                        14m
+kube-system                    service/coredns                                   ClusterIP   10.233.0.3      <none>        53/UDP,53/TCP,9153/TCP         14m
+kube-system                    service/kube-controller-manager-svc               ClusterIP   None            <none>        10257/TCP                      6m27s
+kube-system                    service/kube-scheduler-svc                        ClusterIP   None            <none>        10259/TCP                      6m27s
+kube-system                    service/kubelet                                   ClusterIP   None            <none>        10250/TCP,10255/TCP,4194/TCP   6m14s
+kubesphere-controls-system     service/default-http-backend                      ClusterIP   10.233.13.153   <none>        80/TCP                         9m55s
+kubesphere-monitoring-system   service/alertmanager-main                         ClusterIP   10.233.0.213    <none>        9093/TCP                       6m19s
+kubesphere-monitoring-system   service/alertmanager-operated                     ClusterIP   None            <none>        9093/TCP,9094/TCP,9094/UDP     6m14s
+kubesphere-monitoring-system   service/kube-state-metrics                        ClusterIP   None            <none>        8443/TCP,9443/TCP              6m32s
+kubesphere-monitoring-system   service/node-exporter                             ClusterIP   None            <none>        9100/TCP                       6m34s
+kubesphere-monitoring-system   service/notification-manager-controller-metrics   ClusterIP   10.233.9.24     <none>        8443/TCP                       5m25s
+kubesphere-monitoring-system   service/notification-manager-svc                  ClusterIP   10.233.3.240    <none>        19093/TCP                      2m47s
+kubesphere-monitoring-system   service/notification-manager-webhook              ClusterIP   10.233.29.156   <none>        443/TCP                        5m25s
+kubesphere-monitoring-system   service/prometheus-k8s                            ClusterIP   10.233.10.224   <none>        9090/TCP                       6m28s
+kubesphere-monitoring-system   service/prometheus-operated                       ClusterIP   None            <none>        9090/TCP                       6m14s
+kubesphere-monitoring-system   service/prometheus-operator                       ClusterIP   None            <none>        8443/TCP                       6m45s
+kubesphere-system              service/ks-apiserver                              ClusterIP   10.233.35.84    <none>        80/TCP                         9m55s
+kubesphere-system              service/ks-console                                NodePort    10.233.12.28    <none>        80:30880/TCP                   9m55s
+kubesphere-system              service/ks-controller-manager                     ClusterIP   10.233.6.32     <none>        443/TCP                        9m55s
+
+NAMESPACE                      NAME                           DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kube-system                    daemonset.apps/calico-node     1         1         1       1            1           kubernetes.io/os=linux   14m
+kube-system                    daemonset.apps/kube-proxy      1         1         1       1            1           kubernetes.io/os=linux   14m
+kube-system                    daemonset.apps/nodelocaldns    1         1         1       1            1           <none>                   14m
+kubesphere-monitoring-system   daemonset.apps/node-exporter   1         1         1       1            1           kubernetes.io/os=linux   6m34s
+
+NAMESPACE                      NAME                                              READY   UP-TO-DATE   AVAILABLE   AGE
+kube-system                    deployment.apps/calico-kube-controllers           1/1     1            1           14m
+kube-system                    deployment.apps/coredns                           2/2     2            2           14m
+kube-system                    deployment.apps/openebs-localpv-provisioner       1/1     1            1           14m
+kubesphere-controls-system     deployment.apps/default-http-backend              1/1     1            1           9m55s
+kubesphere-controls-system     deployment.apps/kubectl-admin                     1/1     1            1           118s
+kubesphere-monitoring-system   deployment.apps/kube-state-metrics                1/1     1            1           6m32s
+kubesphere-monitoring-system   deployment.apps/notification-manager-deployment   1/1     1            1           2m47s
+kubesphere-monitoring-system   deployment.apps/notification-manager-operator     1/1     1            1           5m24s
+kubesphere-monitoring-system   deployment.apps/prometheus-operator               1/1     1            1           6m45s
+kubesphere-system              deployment.apps/ks-apiserver                      1/1     1            1           9m55s
+kubesphere-system              deployment.apps/ks-console                        1/1     1            1           9m54s
+kubesphere-system              deployment.apps/ks-controller-manager             1/1     1            1           9m54s
+kubesphere-system              deployment.apps/ks-installer                      1/1     1            1           14m
+
+NAMESPACE                      NAME                                                         DESIRED   CURRENT   READY   AGE
+kube-system                    replicaset.apps/calico-kube-controllers-7fc49b8c4            1         1         1       14m
+kube-system                    replicaset.apps/coredns-86cfc99d74                           2         2         2       14m
+kube-system                    replicaset.apps/openebs-localpv-provisioner-64fb84d4cc       1         1         1       14m
+kubesphere-controls-system     replicaset.apps/default-http-backend-76d9fb4bb7              1         1         1       9m55s
+kubesphere-controls-system     replicaset.apps/kubectl-admin-69b8ff6d54                     1         1         1       118s
+kubesphere-monitoring-system   replicaset.apps/kube-state-metrics-5547ddd4cc                1         1         1       6m32s
+kubesphere-monitoring-system   replicaset.apps/notification-manager-deployment-78664576cb   1         1         1       2m47s
+kubesphere-monitoring-system   replicaset.apps/notification-manager-operator-7d44854f54     1         1         1       5m24s
+kubesphere-monitoring-system   replicaset.apps/prometheus-operator-5c5db79546               1         1         1       6m45s
+kubesphere-system              replicaset.apps/ks-apiserver-6757844bcc                      0         0         0       4m34s
+kubesphere-system              replicaset.apps/ks-apiserver-84d9b96f9b                      1         1         1       4m3s
+kubesphere-system              replicaset.apps/ks-apiserver-fbfb96644                       0         0         0       9m54s
+kubesphere-system              replicaset.apps/ks-console-648d747bb                         1         1         1       9m54s
+kubesphere-system              replicaset.apps/ks-controller-manager-6f547bbc7c             0         0         0       4m33s
+kubesphere-system              replicaset.apps/ks-controller-manager-84b4495b94             1         1         1       4m2s
+kubesphere-system              replicaset.apps/ks-controller-manager-db487788c              0         0         0       9m54s
+kubesphere-system              replicaset.apps/ks-installer-d98f7d88                        1         1         1       14m
+
+NAMESPACE                      NAME                                   READY   AGE
+kube-system                    statefulset.apps/snapshot-controller   1/1     12m
+kubesphere-monitoring-system   statefulset.apps/alertmanager-main     1/1     6m14s
+kubesphere-monitoring-system   statefulset.apps/prometheus-k8s        0/1     6m14s
+[root@master-1 1]# 
+
+
+
+
+添加节点
+[root@master-1 1]# ./kk add nodes -f sample.yaml
++----------+------+------+---------+----------+-------+-------+-----------+----------+------------+-------------+------------------+--------------+
+| name     | sudo | curl | openssl | ebtables | socat | ipset | conntrack | docker   | nfs client | ceph client | glusterfs client | time         |
++----------+------+------+---------+----------+-------+-------+-----------+----------+------------+-------------+------------------+--------------+
+| master-1 | y    | y    | y       | y        | y     | y     | y         | 19.03.13 |            |             |                  | CST 02:11:42 |
+| node-2   | y    | y    | y       | y        |       | y     |           | 19.03.13 |            |             |                  | CST 02:11:41 |
+| node-1   | y    | y    | y       | y        |       | y     |           | 19.03.13 |            |             |                  | CST 02:11:41 |
++----------+------+------+---------+----------+-------+-------+-----------+----------+------------+-------------+------------------+--------------+
+node-2: conntrack is required. 
+node-1: conntrack is required. 
+[root@master-1 1]# 
