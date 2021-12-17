@@ -11,15 +11,17 @@ https://docs.rancher.cn/docs/k3s/_index/
 
 k3s默认使用container，两者命令对比表：
 
-id	containerd 命令	docker 命令	备注
-1	ctr image ls	docker images	获取image信息
-2	ctr image pull nginx	docker pull nginx	pull 一个nginx的image
-3	ctr image tag nginx nginx-test	docker tag nginx nginx-test	tag 一个nginx的image
-4	ctr image push nginx-test	docker push nginx-test	push nginx-test的image
-5	ctr image pull nginx	docker pull nginx	pull 一个nginx的image
-6	ctr image import nginx.tar	docker load < nginx.tar.gz	导入本地镜像ctr不支持压缩
-7	ctr run -d --env 111 nginx-test nginx	docker run -d --name=nginx nginx-test	运行的一个容器
-8	ctr task ls	docker ps	查看运行的容器
+k3s默认使用container，两者命令对比表：
+id containerd 命令	                			    docker 命令	  备注
+1	ctr image ls	                  			     docker images	获取image信息
+2	ctr image pull nginx	          			     docker pull nginx	pull 一个nginx的image
+3	ctr image tag nginx nginx-test				     docker tag nginx nginx-test	tag 一个nginx的image
+4	ctr image push nginx-test	      			    docker push nginx-test	push nginx-test的image
+5	ctr image pull nginx	          			     docker pull nginx	pull 一个nginx的image
+6	ctr image import nginx.tar	    			     docker load < nginx.tar.gz	导入本地镜像ctr不支持压缩
+7	ctr run -d --env 111 nginx-test nginx	 docker run -d --name=nginx nginx-test	运行的一个容器
+8	ctr task ls	                           docker ps	查看运行的容器
+
 docker、containerd的关系
 从k8s的角度看，可以选择 containerd 或 docker 作为运行时组件：Containerd 调用链更短，组件更少，更稳定，占用节点资源更少
 
