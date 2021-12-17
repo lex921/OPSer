@@ -1,0 +1,801 @@
+#k3s快速搭建集群环境
+k3s 简介
+轻量级 Kubernetes。安装简单，内存只有一半，所有的二进制都不到 100MB
+K3s 是一个完全符合 Kubernetes 的发行版，有以下增强功能。
+k3s架构
+基本就是k8s的架构 k3s Server节点对应k8sMaster节点， Agent节点对应Worker节点
+
+中文官方文档
+https://docs.rancher.cn/docs/k3s/_index/
+
+
+k3s默认使用container，两者命令对比表：
+
+id	containerd 命令	docker 命令	备注
+1	ctr image ls	docker images	获取image信息
+2	ctr image pull nginx	docker pull nginx	pull 一个nginx的image
+3	ctr image tag nginx nginx-test	docker tag nginx nginx-test	tag 一个nginx的image
+4	ctr image push nginx-test	docker push nginx-test	push nginx-test的image
+5	ctr image pull nginx	docker pull nginx	pull 一个nginx的image
+6	ctr image import nginx.tar	docker load < nginx.tar.gz	导入本地镜像ctr不支持压缩
+7	ctr run -d --env 111 nginx-test nginx	docker run -d --name=nginx nginx-test	运行的一个容器
+8	ctr task ls	docker ps	查看运行的容器
+docker、containerd的关系
+从k8s的角度看，可以选择 containerd 或 docker 作为运行时组件：Containerd 调用链更短，组件更少，更稳定，占用节点资源更少
+
+链接：https://blog.csdn.net/x356982611/article/details/106683238
+
+
+
+需要开发的端口
+K3s Server节点的入站规则：
+
+协议	端口	源	描述
+TCP	6443	K3s agent 节点	Kubernetes API Server
+UDP	8472	K3s server 和 agent 节点	仅对 Flannel VXLAN 需要
+TCP	10250	K3s server 和 agent 节点	Kubelet metrics
+通常情况下，所有出站流量都是允许的。
+
+## 1、操作系统配置、docker安装省略。。。。
+
+
+## 2、安装master节点
+[root@master-1 ~]# curl -sfL http://rancher-mirror.cnrancher.com/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn sh -
+[INFO]  Finding release for channel stable
+[INFO]  Using v1.21.7+k3s1 as release
+[INFO]  Downloading hash http://rancher-mirror.cnrancher.com/k3s/v1.21.7-k3s1/sha256sum-amd64.txt
+[INFO]  Downloading binary http://rancher-mirror.cnrancher.com/k3s/v1.21.7-k3s1/k3s
+[INFO]  Verifying binary download
+[INFO]  Installing k3s to /usr/local/bin/k3s
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.163.com
+ * extras: mirrors.163.com
+ * updates: mirrors.163.com
+base                                                                                                                                           | 3.6 kB  00:00:00     
+docker-ce-stable                                                                                                                               | 3.5 kB  00:00:00     
+extras                                                                                                                                         | 2.9 kB  00:00:00     
+updates                                                                                                                                        | 2.9 kB  00:00:00     
+Package yum-utils-1.1.31-54.el7_8.noarch already installed and latest version
+Nothing to do
+Loaded plugins: fastestmirror
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.163.com
+ * extras: mirrors.163.com
+ * updates: mirrors.163.com
+rancher-k3s-common-stable                                                                                                                      | 2.9 kB  00:00:00     
+rancher-k3s-common-stable/primary_db                                                                                                           | 2.8 kB  00:00:02     
+Resolving Dependencies
+--> Running transaction check
+---> Package k3s-selinux.noarch 0:0.5-1.el7 will be installed
+--> Finished Dependency Resolution
+
+Dependencies Resolved
+
+======================================================================================================================================================================
+ Package                               Arch                             Version                             Repository                                           Size
+======================================================================================================================================================================
+Installing:
+ k3s-selinux                           noarch                           0.5-1.el7                           rancher-k3s-common-stable                            15 k
+
+Transaction Summary
+======================================================================================================================================================================
+Install  1 Package
+
+Total download size: 15 k
+Installed size: 83 k
+Downloading packages:
+warning: /var/cache/yum/x86_64/7/rancher-k3s-common-stable/packages/k3s-selinux-0.5-1.el7.noarch.rpm: Header V4 RSA/SHA1 Signature, key ID e257814a: NOKEY-:--:-- ETA 
+Public key for k3s-selinux-0.5-1.el7.noarch.rpm is not installed
+k3s-selinux-0.5-1.el7.noarch.rpm                                                                                                               |  15 kB  00:00:03     
+Retrieving key from https://rpm.rancher.io/public.key
+Importing GPG key 0xE257814A:
+ Userid     : "Rancher (CI) <ci@rancher.com>"
+ Fingerprint: c8cf f216 4551 26e9 b9c9 18be 925e a29a e257 814a
+ From       : https://rpm.rancher.io/public.key
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : k3s-selinux-0.5-1.el7.noarch                                                                                                                       1/1 
+  Verifying  : k3s-selinux-0.5-1.el7.noarch                                                                                                                       1/1 
+
+Installed:
+  k3s-selinux.noarch 0:0.5-1.el7                                                                                                                                      
+
+Complete!
+[INFO]  Creating /usr/local/bin/kubectl symlink to k3s
+[INFO]  Creating /usr/local/bin/crictl symlink to k3s
+[INFO]  Skipping /usr/local/bin/ctr symlink to k3s, command exists in PATH at /usr/bin/ctr
+[INFO]  Creating killall script /usr/local/bin/k3s-killall.sh
+[INFO]  Creating uninstall script /usr/local/bin/k3s-uninstall.sh
+[INFO]  env: Creating environment file /etc/systemd/system/k3s.service.env
+[INFO]  systemd: Creating service file /etc/systemd/system/k3s.service
+[INFO]  systemd: Enabling k3s unit
+[INFO]  systemd: Starting k3s
+
+3、查看密钥：
+[root@master-1 ~]# cat /var/lib/rancher/k3s/server/node-token
+K10b944df712eafc838d812d175c96f9af8b3cae8a543482803fe7926c48fde32c8::server:7dcd8172b783fbe119442f1272843b04
+
+
+[root@master-1 ~]# kubectl get node
+NAME       STATUS   ROLES                  AGE   VERSION
+master-1   Ready    control-plane,master   40s   v1.21.7+k3s1
+[root@master-1 ~]# 
+
+
+## 4、节点安装：
+安装worker节点加入集群
+在 master节点主机上查看 /var/lib/rancher/k3s/server/node-token的值即为 K3S_TOKEN 的值
+https://master-1:6443 连接master主机
+
+curl -sfL http://rancher-mirror.cnrancher.com/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn K3S_URL=https://master-1:6443 K3S_TOKEN=K10b944df712eafc838d812d175c96f9af8b3cae8a543482803fe7926c48fde32c8::server:7dcd8172b783fbe119442f1272843b04 INSTALL_K3S_EXEC="--docker"  sh -
+
+###节点1:
+[root@node-1 ~]# curl -sfL http://rancher-mirror.cnrancher.com/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn K3S_URL=https://master-1:6443 K3S_TOKEN=K10b944df712eafc838d812d175c96f9af8b3cae8a543482803fe7926c48fde32c8::server:7dcd8172b783fbe119442f1272843b04 INSTALL_K3S_EXEC="--docker"  sh -
+[INFO]  Finding release for channel stable
+[INFO]  Using v1.21.7+k3s1 as release
+[INFO]  Downloading hash http://rancher-mirror.cnrancher.com/k3s/v1.21.7-k3s1/sha256sum-amd64.txt
+[INFO]  Downloading binary http://rancher-mirror.cnrancher.com/k3s/v1.21.7-k3s1/k3s
+[INFO]  Verifying binary download
+[INFO]  Installing k3s to /usr/local/bin/k3s
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.163.com
+ * extras: mirrors.163.com
+ * updates: mirrors.163.com
+base                                                                                                                                           | 3.6 kB  00:00:00     
+docker-ce-stable                                                                                                                               | 3.5 kB  00:00:00     
+extras                                                                                                                                         | 2.9 kB  00:00:00     
+updates                                                                                                                                        | 2.9 kB  00:00:00     
+Package yum-utils-1.1.31-54.el7_8.noarch already installed and latest version
+Nothing to do
+Loaded plugins: fastestmirror
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.163.com
+ * extras: mirrors.163.com
+ * updates: mirrors.163.com
+rancher-k3s-common-stable                                                                                                                      | 2.9 kB  00:00:00     
+rancher-k3s-common-stable/primary_db                                                                                                           | 2.8 kB  00:00:02     
+Resolving Dependencies
+--> Running transaction check
+---> Package k3s-selinux.noarch 0:0.5-1.el7 will be installed
+--> Finished Dependency Resolution
+
+Dependencies Resolved
+
+======================================================================================================================================================================
+ Package                               Arch                             Version                             Repository                                           Size
+======================================================================================================================================================================
+Installing:
+ k3s-selinux                           noarch                           0.5-1.el7                           rancher-k3s-common-stable                            15 k
+
+Transaction Summary
+======================================================================================================================================================================
+Install  1 Package
+
+Total download size: 15 k
+Installed size: 83 k
+Downloading packages:
+warning: /var/cache/yum/x86_64/7/rancher-k3s-common-stable/packages/k3s-selinux-0.5-1.el7.noarch.rpm: Header V4 RSA/SHA1 Signature, key ID e257814a: NOKEY-:--:-- ETA 
+Public key for k3s-selinux-0.5-1.el7.noarch.rpm is not installed
+k3s-selinux-0.5-1.el7.noarch.rpm                                                                                                               |  15 kB  00:00:02     
+Retrieving key from https://rpm.rancher.io/public.key
+Importing GPG key 0xE257814A:
+ Userid     : "Rancher (CI) <ci@rancher.com>"
+ Fingerprint: c8cf f216 4551 26e9 b9c9 18be 925e a29a e257 814a
+ From       : https://rpm.rancher.io/public.key
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : k3s-selinux-0.5-1.el7.noarch                                                                                                                       1/1 
+  Verifying  : k3s-selinux-0.5-1.el7.noarch                                                                                                                       1/1 
+
+Installed:
+  k3s-selinux.noarch 0:0.5-1.el7                                                                                                                                      
+
+Complete!
+[INFO]  Creating /usr/local/bin/kubectl symlink to k3s
+[INFO]  Creating /usr/local/bin/crictl symlink to k3s
+[INFO]  Skipping /usr/local/bin/ctr symlink to k3s, command exists in PATH at /usr/bin/ctr
+[INFO]  Creating killall script /usr/local/bin/k3s-killall.sh
+[INFO]  Creating uninstall script /usr/local/bin/k3s-agent-uninstall.sh
+[INFO]  env: Creating environment file /etc/systemd/system/k3s-agent.service.env
+[INFO]  systemd: Creating service file /etc/systemd/system/k3s-agent.service
+[INFO]  systemd: Enabling k3s-agent unit
+[INFO]  systemd: Starting k3s-agent
+[root@node-1 ~]# 
+
+###节点2
+[root@node-2 ~]# curl -sfL http://rancher-mirror.cnrancher.com/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn K3S_URL=https://master-1:6443 K3S_TOKEN=K10b944df712eafc838d812d175c96f9af8b3cae8a543482803fe7926c48fde32c8::server:7dcd8172b783fbe119442f1272843b04 INSTALL_K3S_EXEC="--docker"  sh -
+[INFO]  Finding release for channel stable
+[INFO]  Using v1.21.7+k3s1 as release
+[INFO]  Downloading hash http://rancher-mirror.cnrancher.com/k3s/v1.21.7-k3s1/sha256sum-amd64.txt
+[INFO]  Downloading binary http://rancher-mirror.cnrancher.com/k3s/v1.21.7-k3s1/k3s
+[INFO]  Verifying binary download
+[INFO]  Installing k3s to /usr/local/bin/k3s
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.163.com
+ * extras: mirrors.163.com
+ * updates: mirrors.163.com
+base                                                                                                                                           | 3.6 kB  00:00:00     
+docker-ce-stable                                                                                                                               | 3.5 kB  00:00:00     
+extras                                                                                                                                         | 2.9 kB  00:00:00     
+updates                                                                                                                                        | 2.9 kB  00:00:00     
+Package yum-utils-1.1.31-54.el7_8.noarch already installed and latest version
+Nothing to do
+Loaded plugins: fastestmirror
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.163.com
+ * extras: mirrors.163.com
+ * updates: mirrors.163.com
+rancher-k3s-common-stable                                                                                                                      | 2.9 kB  00:00:00     
+rancher-k3s-common-stable/primary_db                                                                                                           | 2.8 kB  00:00:02     
+Resolving Dependencies
+--> Running transaction check
+---> Package k3s-selinux.noarch 0:0.5-1.el7 will be installed
+--> Finished Dependency Resolution
+
+Dependencies Resolved
+
+======================================================================================================================================================================
+ Package                               Arch                             Version                             Repository                                           Size
+======================================================================================================================================================================
+Installing:
+ k3s-selinux                           noarch                           0.5-1.el7                           rancher-k3s-common-stable                            15 k
+
+Transaction Summary
+======================================================================================================================================================================
+Install  1 Package
+
+Total download size: 15 k
+Installed size: 83 k
+Downloading packages:
+warning: /var/cache/yum/x86_64/7/rancher-k3s-common-stable/packages/k3s-selinux-0.5-1.el7.noarch.rpm: Header V4 RSA/SHA1 Signature, key ID e257814a: NOKEY-:--:-- ETA 
+Public key for k3s-selinux-0.5-1.el7.noarch.rpm is not installed
+k3s-selinux-0.5-1.el7.noarch.rpm                                                                                                               |  15 kB  00:00:02     
+Retrieving key from https://rpm.rancher.io/public.key
+Importing GPG key 0xE257814A:
+ Userid     : "Rancher (CI) <ci@rancher.com>"
+ Fingerprint: c8cf f216 4551 26e9 b9c9 18be 925e a29a e257 814a
+ From       : https://rpm.rancher.io/public.key
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : k3s-selinux-0.5-1.el7.noarch                                                                                                                       1/1 
+  Verifying  : k3s-selinux-0.5-1.el7.noarch                                                                                                                       1/1 
+
+Installed:
+  k3s-selinux.noarch 0:0.5-1.el7                                                                                                                                      
+
+Complete!
+[INFO]  Creating /usr/local/bin/kubectl symlink to k3s
+[INFO]  Creating /usr/local/bin/crictl symlink to k3s
+[INFO]  Skipping /usr/local/bin/ctr symlink to k3s, command exists in PATH at /usr/bin/ctr
+[INFO]  Creating killall script /usr/local/bin/k3s-killall.sh
+[INFO]  Creating uninstall script /usr/local/bin/k3s-agent-uninstall.sh
+[INFO]  env: Creating environment file /etc/systemd/system/k3s-agent.service.env
+[INFO]  systemd: Creating service file /etc/systemd/system/k3s-agent.service
+[INFO]  systemd: Enabling k3s-agent unit
+[INFO]  systemd: Starting k3s-agent
+[root@node-2 ~]# 
+
+## 5、查看集群
+在master上通过命令 kubectl get node查看集群节点
+[root@master-1 ~]#  kubectl get node
+NAME       STATUS   ROLES                  AGE     VERSION
+node-1     Ready    <none>                 3m51s   v1.21.7+k3s1
+master-1   Ready    control-plane,master   10m     v1.21.7+k3s1
+node-2     Ready    <none>                 2m35s   v1.21.7+k3s1
+[root@master-1 ~]# 
+
+
+[root@master-1 ~]#  kubectl get cs
+Warning: v1 ComponentStatus is deprecated in v1.19+
+NAME                 STATUS    MESSAGE   ERROR
+scheduler            Healthy   ok        
+controller-manager   Healthy   ok   
+
+[root@master-1 ~]# kubectl version
+Client Version: version.Info{Major:"1", Minor:"21", GitVersion:"v1.21.7+k3s1", GitCommit:"ac70570999c566ac3507d2cc17369bb0629c1cc0", GitTreeState:"clean", BuildDate:"2021-11-29T16:40:13Z", GoVersion:"go1.16.10", Compiler:"gc", Platform:"linux/amd64"}
+Server Version: version.Info{Major:"1", Minor:"21", GitVersion:"v1.21.7+k3s1", GitCommit:"ac70570999c566ac3507d2cc17369bb0629c1cc0", GitTreeState:"clean", BuildDate:"2021-11-29T16:40:13Z", GoVersion:"go1.16.10", Compiler:"gc", Platform:"linux/amd64"}
+
+
+[root@master-1 ~]# kubectl top node
+W1216 18:18:38.335565    9063 top_node.go:119] Using json format to get metrics. Next release will switch to protocol-buffers, switch early by passing --use-protocol-buffers flag
+NAME       CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%   
+master-1   394m         19%    1393Mi          36%       
+node-1     71m          3%     568Mi           15%       
+node-2     69m          3%     570Mi           15%       
+
+
+[root@master-1 ~]#  kubectl get pod -A
+NAMESPACE              NAME                                         READY   STATUS      RESTARTS   AGE
+kube-system            coredns-7448499f4d-gfkds                     1/1     Running     0          38m
+kube-system            metrics-server-86cbb8457f-76nrt              1/1     Running     0          38m
+kube-system            local-path-provisioner-5ff76fc89d-79x88      1/1     Running     0          38m
+kube-system            helm-install-traefik-crd-ghgl5               0/1     Completed   0          38m
+kube-system            helm-install-traefik-njmnw                   0/1     Completed   2          38m
+kube-system            svclb-traefik-vq27d                          2/2     Running     0          37m
+kube-system            traefik-6b84f7cbc-92hv4                      1/1     Running     0          37m
+kube-system            svclb-traefik-db2wn                          2/2     Running     0          32m
+kube-system            svclb-traefik-t2ncq                          2/2     Running     0          31m
+kubernetes-dashboard   dashboard-metrics-scraper-856586f554-qsvld   1/1     Running     0          19m
+kubernetes-dashboard   kubernetes-dashboard-78c79f97b4-2zjg2        1/1     Running     0          19m
+
+
+
+[root@master-1 ~]#  kubectl -n kube-system describe $(kubectl -n kube-system get secret -n kube-system -o name | grep namespace) | grep token
+Name:         namespace-controller-token-ffdxv
+Type:  kubernetes.io/service-account-token
+token:      eyJhbGciOiJSUzI1NiIsImtpZCI6InBKUUQ4R3EwTVM5Y0VWSnQzYmhsUkt4cVVycW03SFVkRDdGbTl3a0luWVUifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlLXN5c3RlbSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJuYW1lc3BhY2UtY29udHJvbGxlci10b2tlbi1mZmR4diIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJuYW1lc3BhY2UtY29udHJvbGxlciIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6Ijg1YzNhYzI1LWQyZmItNDMxYy1hZTM3LWQ3ZDZkZWYzMWY3YiIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDprdWJlLXN5c3RlbTpuYW1lc3BhY2UtY29udHJvbGxlciJ9.hWyQ9_AsPfd-vLogARqQVmROww60KH__xxUI0AEYMfPoP12upt7SAJK8-pz1eOQ_RMXuSirtoS9H4h_BOSmV7abunvTg1B8peYDb7f-DnwHqKi0fIPu9rTpjz8vT6fYX11UlqJOTxI3NRgz61rpI_MUIO7Vy0CzlmLFZ-sx7gaklmfz2ZMx7y_6uRobVAY5sjT6uM0JN-rE8FMpeW-VvMJv4k34d8pSNhC4p_PNADzgQ--QVPLhuXAvwhHzez6NL51H277w-2Ij3Jt183h1PKu65w7GGCm2MUmkCC__bK-orN5Hky4ku0cotAe58QNe75k4wP8ANidBaL5o1gzAnoQ
+[root@master-1 ~]# 
+
+
+访问：
+https://172.16.201.134:31001/#/node?namespace=default
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
