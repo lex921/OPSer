@@ -345,7 +345,81 @@ token:      eyJhbGciOiJSUzI1NiIsImtpZCI6InBKUUQ4R3EwTVM5Y0VWSnQzYmhsUkt4cVVycW03
 https://172.16.201.134:31001/#/node?namespace=default
 
 
+######重启之后提示：starting kubernetes: preparing server: failed to normalize token
+######解决：
+[root@master-1 ~]#  vim /var/lib/rancher/k3s/server/node-token
+K10b944df712eafc838d812d175c96f9af8b3cae8a543482803fe7926c48fde32c8::server:7dcd8172b783fbe119442f1272843b04
 
+
+
+[root@master-1 ~]# systemctl start k3s   
+[root@master-1 ~]# systemctl status k3s
+● k3s.service - Lightweight Kubernetes
+   Loaded: loaded (/etc/systemd/system/k3s.service; enabled; vendor preset: disabled)
+   Active: active (running) since Mon 2021-12-20 16:23:55 CST; 4s ago
+     Docs: https://k3s.io
+  Process: 64815 ExecStartPre=/sbin/modprobe overlay (code=exited, status=0/SUCCESS)
+  Process: 64813 ExecStartPre=/sbin/modprobe br_netfilter (code=exited, status=0/SUCCESS)
+ Main PID: 64818 (k3s-server)
+    Tasks: 92
+   Memory: 511.8M
+   CGroup: /system.slice/k3s.service
+           ├─64818 /usr/local/bin/k3s server
+           ├─64836 containerd 
+           ├─65559 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/containerd-shim-runc-v2 -namespace k8s.io -id cca5dec02972a0d15e0d75e945a10ccab02707ffac2f89ab4ef5...
+           ├─65585 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/containerd-shim-runc-v2 -namespace k8s.io -id dea3f0abcebc76dfdc6c2e3adf3960e1b7eb0d643cf2b358a9df...
+           ├─65621 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/portmap
+           ├─65716 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/containerd-shim-runc-v2 -namespace k8s.io -id 718d7ab84fef067d3ac09c772dbe8a4bb1af94b4eb087f6fd830...
+           ├─65726 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/containerd-shim-runc-v2 -namespace k8s.io -id b3259964d1e564c139191e1fb2836eaa75326e69029a1d2ce5f3...
+           ├─65902 runc --root /run/containerd/runc/k8s.io --log /run/k3s/containerd/io.containerd.runtime.v2.task/k8s.io/17acad8ad047eba263c1dda365073a7fa7bb7445703b79a17dd7b2b8c15da48e/log.json --log-format jso...
+           ├─65912 runc --root /run/containerd/runc/k8s.io --log /run/k3s/containerd/io.containerd.runtime.v2.task/k8s.io/e105f029b01b1852485e08d0db667f43fe8dc493077bcd315833810dbe1f8294/log.json --log-format jso...
+           ├─65920 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/portmap
+           └─65921 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/containerd-shim-runc-v2 -namespace k8s.io -id b3259964d1e564c139191e1fb2836eaa75326e69029a1d2ce5f3...
+
+Dec 20 16:23:57 master-1 k3s[64818]: W1220 16:23:57.983122   64818 authorization.go:184] No authorization-kubeconfig provided, so SubjectAccessReview of authorization tokens won't work.
+Dec 20 16:23:58 master-1 k3s[64818]: I1220 16:23:58.002157   64818 controllermanager.go:142] Version: v1.21.7+k3s1
+Dec 20 16:23:58 master-1 k3s[64818]: I1220 16:23:58.003049   64818 secure_serving.go:202] Serving securely on 127.0.0.1:10258
+Dec 20 16:23:58 master-1 k3s[64818]: I1220 16:23:58.004662   64818 tlsconfig.go:240] Starting DynamicServingCertificateController
+Dec 20 16:23:58 master-1 k3s[64818]: I1220 16:23:58.049145   64818 request.go:668] Waited for 1.002894027s due to client-side throttling, not priority and fairness, request: GET:https://127.0.0.1:6.../v1?timeout=32s
+Dec 20 16:23:58 master-1 k3s[64818]: E1220 16:23:58.438165   64818 available_controller.go:508] v1beta1.metrics.k8s.io failed with: failing or missing response from https://10.43.27.28:443/apis/metrics.k8s.io/v1b...
+Dec 20 16:23:59 master-1 k3s[64818]: W1220 16:23:59.439254   64818 handler_proxy.go:101] no RequestInfo found in the context
+Dec 20 16:23:59 master-1 k3s[64818]: E1220 16:23:59.439368   64818 controller.go:116] loading OpenAPI spec for "v1beta1.metrics.k8s.io" failed with: failed to retrieve openAPI spec, http error: Res...ice unavailable
+Dec 20 16:23:59 master-1 k3s[64818]: , Header: map[Content-Type:[text/plain; charset=utf-8] X-Content-Type-Options:[nosniff]]
+Dec 20 16:23:59 master-1 k3s[64818]: I1220 16:23:59.439384   64818 controller.go:129] OpenAPI AggregationController: action for item v1beta1.metrics.k8s.io: Rate Limited Requeue.
+Hint: Some lines were ellipsized, use -l to show in full.
+[root@master-1 ~]# 
+
+[root@master-1 ~]#  ps -ef|grep k3s
+root      64818      1 46 16:23 ?        00:00:16 /usr/local/bin/k3s server
+root      65559      1  0 16:23 ?        00:00:00 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/containerd-shim-runc-v2 -namespace k8s.io -id cca5dec02972a0d15e0d75e945a10ccab02707ffac2f89ab4ef56d7191d4aa1b -address /run/k3s/containerd/containerd.sock
+root      65585      1  0 16:23 ?        00:00:00 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/containerd-shim-runc-v2 -namespace k8s.io -id dea3f0abcebc76dfdc6c2e3adf3960e1b7eb0d643cf2b358a9dfc92193442c77 -address /run/k3s/containerd/containerd.sock
+root      65716      1  0 16:23 ?        00:00:00 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/containerd-shim-runc-v2 -namespace k8s.io -id 718d7ab84fef067d3ac09c772dbe8a4bb1af94b4eb087f6fd830e3c3c518620b -address /run/k3s/containerd/containerd.sock
+root      65726      1  0 16:23 ?        00:00:00 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/containerd-shim-runc-v2 -namespace k8s.io -id b3259964d1e564c139191e1fb2836eaa75326e69029a1d2ce5f365bcc26f7709 -address /run/k3s/containerd/containerd.sock
+root      65987      1  0 16:23 ?        00:00:00 /var/lib/rancher/k3s/data/e61cd97f31a54dbcd9893f8325b7133cfdfd0229ff3bfae5a4f845780a93e84c/bin/containerd-shim-runc-v2 -namespace k8s.io -id ee997749c240e9b9836eab2db7bc17cf09f7db8b4e574986f0f3f6100a103dd6 -address /run/k3s/containerd/containerd.sock
+root      66520   1143  0 16:24 pts/1    00:00:00 grep --color=auto k3s
+
+
+[root@master-1 ~]# kubectl get cs
+Warning: v1 ComponentStatus is deprecated in v1.19+
+NAME                 STATUS    MESSAGE   ERROR
+scheduler            Healthy   ok        
+controller-manager   Healthy   ok  
+
+
+[root@master-1 ~]# kubectl get pod -A
+NAMESPACE              NAME                                         READY   STATUS      RESTARTS   AGE
+kube-system            helm-install-traefik-crd-ghgl5               0/1     Completed   0          3d22h
+kube-system            helm-install-traefik-njmnw                   0/1     Completed   2          3d22h
+kube-system            metrics-server-86cbb8457f-76nrt              1/1     Running     1          3d22h
+kube-system            svclb-traefik-vq27d                          2/2     Running     2          3d22h
+kube-system            coredns-7448499f4d-gfkds                     1/1     Running     1          3d22h
+kube-system            local-path-provisioner-5ff76fc89d-79x88      1/1     Running     2          3d22h
+kube-system            traefik-6b84f7cbc-92hv4                      1/1     Running     1          3d22h
+kube-system            svclb-traefik-db2wn                          2/2     Running     0          3d22h
+kubernetes-dashboard   dashboard-metrics-scraper-856586f554-qsvld   1/1     Running     0          3d22h
+kubernetes-dashboard   kubernetes-dashboard-78c79f97b4-2zjg2        1/1     Running     0          3d22h
+kube-system            svclb-traefik-t2ncq                          2/2     Running     0          3d22h
+[root@master-1 ~]# 
 
 
 
