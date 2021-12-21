@@ -1,0 +1,153 @@
+##(二十)、k8s部署 ActiveMQ
+###1、做景象
+[root@master1 ~]# vim dockerfile_activemq 
+FROM centos:latest
+
+MAINTAINER lyd
+
+ADD jdk-8u251-linux-x64.tar.gz /usr/local/
+ADD apache-activemq-5.16.0-bin.tar.gz /usr/local/
+RUN cd /usr/local && ls && mv apache-activemq-5.16.0 activemq
+ENV JAVA_HOME=/usr/local/jdk1.8.0_251
+ENV CLASSPATH=.$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+EXPOSE 61616 8161
+
+ENTRYPOINT  /usr/local/activemq/bin/activemq start && /bin/bash
+
+
+###2、执行
+[root@master-1 activemq]#docker build -f dockerfile_activemq -t activemq:0.1 .
+
+mq使用的端口较多，启动时主要是端口映射
+AMQ使用默认61616提供JMS服务，8161提供web管控台服务。
+docker run -dit --name activemq -p 61616:61616 -p 8161:8161 activemq
+docker run -dit --name activemq -p 61616:61616 -p 8161:8161 -p 30081:8161 -p 30061:61616 activemq
+netstat -nltp|grep -E '(61616|8161)' 查看映射端口
+
+###3、查看
+[root@node-1 activemq]# docker images|grep activemq
+activemq                                             0.1                 25d66bad1665        About an hour ago   741MB
+[root@node-1 activemq]# 
+
+
+###4、准备丫猫脚本
+[root@master-1 activemq]# vim activemq-service.yml
+[root@master1 ~]# cat activemq-service.yml 
+apiVersion: v1
+kind: Service
+metadata:
+  name: activemq-service #名称
+  labels:
+    app: activemq
+spec:
+  type: NodePort
+  ports:
+  - name: admin
+    port: 8161
+    targetPort: 8161
+    nodePort: 30081
+  - name: tcp
+    port: 61616
+    targetPort: 61616
+    protocol: TCP
+    nodePort: 30061
+  selector:
+    app: activemq
+
+
+[root@master-1 activemq]# kubectl apply -f activemq-service.yml 
+service/activemq-service created
+
+[root@master-1 activemq]#  kubectl get svc
+NAME               TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                          AGE
+activemq-service   NodePort    10.1.113.149   <none>        8161:30081/TCP,61616:30061/TCP   3s
+kubernetes         ClusterIP   10.1.0.1       <none>        443/TCP                          93m
+nginx              NodePort    10.1.54.17     <none>        80:32758/TCP                     24m
+
+
+
+
+
+[root@master-1 activemq]# vim activemq-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: activemq-deployment
+  labels:
+    app: activemq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: activemq
+  template:
+    metadata:
+      labels:
+        app: activemq
+    spec:
+      containers:
+      - name: activemq
+        image: activemq:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-ce", "tail -f /dev/null" ]
+        ports:
+        - containerPort: 61616
+        - containerPort: 8161
+      nodeName: node-2
+
+ kubectl delete -f activemq-deployment.yml
+ kubectl delete pod activemq-deployment-77966fd658-nglgd --force
+ 
+[root@master-1 activemq]#  kubectl apply -f activemq-deployment.yml 
+deployment.apps/activemq-deployment created
+
+[root@master-1 activemq]# kubectl get pods
+NAME                                  READY   STATUS    RESTARTS   AGE
+activemq-deployment-c9b57bd56-9spvq   0/1     Pending   0          9s
+
+
+
+kubectl describe pod activemq-deployment-76b64874f-wv99l
+kubectl get event
+
+
+###5、启动服务
+###activemq配置需要改一下：
+[root@master-1 activemq]# kubectl exec -it activemq-deployment-68b8596b6b-mn9fw -- bash
+[root@activemq-deployment-68b8596b6b-mn9fw activemq]# cd /usr/local/activemq
+[root@activemq-deployment-68b8596b6b-mn9fw activemq]# vim conf/jetty.xml
+<property name="host" value="0.0.0.0"/>
+默认是127.0.0.1，改成0.0.0.0
+[root@activemq-deployment-68b8596b6b-mn9fw activemq]#./bin/activemq start
+[root@activemq-deployment-68b8596b6b-mn9fw activemq]# tail -100f ./data/activemq.log
+...
+2021-12-21 05:52:52,387 | WARN  | ServletContext@o.e.j.s.ServletContextHandler@74f5ce22{/,null,STARTING} has uncovered http methods for path: / | org.eclipse.jetty.security.SecurityHandler | main
+2021-12-21 05:52:52,486 | INFO  | Listening for connections at ws://activemq-deployment-68b8596b6b-mn9fw:61614?maximumConnections=1000&wireFormat.maxFrameSize=104857600 | org.apache.activemq.transport.ws.WSTransportServer | main
+2021-12-21 05:52:52,496 | INFO  | Connector ws started | org.apache.activemq.broker.TransportConnector | main
+2021-12-21 05:52:52,499 | INFO  | Apache ActiveMQ 5.16.0 (localhost, ID:activemq-deployment-68b8596b6b-mn9fw-33550-1640065971778-0:1) started | org.apache.activemq.broker.BrokerService | main
+2021-12-21 05:52:52,501 | INFO  | For help or more information please see: http://activemq.apache.org | org.apache.activemq.broker.BrokerService | main
+2021-12-21 05:52:52,503 | WARN  | Store limit is 102400 mb (current store usage is 0 mb). The data directory: /usr/local/activemq/data/kahadb only has 98832 mb of usable space. - resetting to maximum available disk space: 98832 mb | org.apache.activemq.broker.BrokerService | main
+2021-12-21 05:52:53,958 | INFO  | ActiveMQ WebConsole available at http://0.0.0.0:8161/ | org.apache.activemq.web.WebConsoleStarter | main
+2021-12-21 05:52:53,959 | INFO  | ActiveMQ Jolokia REST API available at http://0.0.0.0:8161/api/jolokia/ | org.apache.activemq.web.WebConsoleStarter | main
+
+
+###6、访问：
+访问：默认admin/admin
+http://172.16.201.134:30081/admin/queues.jsp
+
+
+
+[root@master-1 activemq]#  kubectl get pods
+NAME                                   READY   STATUS    RESTARTS   AGE
+activemq-deployment-68b8596b6b-2xjgd   1/1     Running   0          2m49s
+activemq-deployment-68b8596b6b-6gxvf   1/1     Running   0          20s
+activemq-deployment-68b8596b6b-8589n   1/1     Running   0          2m49s
+activemq-deployment-68b8596b6b-fkxj6   1/1     Running   0          20s
+activemq-deployment-68b8596b6b-mn9fw   1/1     Running   0          61m
+activemq-deployment-68b8596b6b-nmmzx   1/1     Running   0          20s
+activemq-deployment-68b8596b6b-p958t   1/1     Running   0          20s
+activemq-deployment-68b8596b6b-qdp4f   1/1     Running   0          20s
+activemq-deployment-68b8596b6b-swwr4   1/1     Running   0          20s
+nginx-6799fc88d8-xccsn                 1/1     Running   1          86m
