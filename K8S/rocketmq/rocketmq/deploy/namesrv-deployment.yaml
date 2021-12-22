@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: mq-namesrv
+  name: mq-namesrv
+  namespace: wiseco
+spec:
+  type: NodePort
+  ports:
+  - port: 20901
+    targetPort: 20901
+    name: namesrv-port
+    nodePort: 30915
+  selector:
+    app: mq-namesrv
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mq-namesrv
+  namespace: wiseco
+spec:
+  serviceName: mq-namesrv
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mq-namesrv
+  template:
+    metadata:
+     labels:
+       app: mq-namesrv
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - mq-namesrv
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: mq-namesrv
+        image: lex921/rocketmq_namesrv:0.1
+        imagePullPolicy: Always
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh","-c","touch /tmp/health"]
+        livenessProbe:
+          exec:
+            command: ["test","-e","/tmp/health"]
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 20901
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+          periodSeconds: 20

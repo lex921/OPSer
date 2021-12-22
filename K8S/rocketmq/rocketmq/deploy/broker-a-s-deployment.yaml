@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: broker-a-s
+  name: broker-a-s
+  namespace: wiseco
+spec:
+  type: NodePort
+  ports:
+  - port: 20911
+    targetPort: 20911
+    name: broker-port
+    nodePort: 30912
+  selector:
+    app: broker-a-s
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: broker-a-s
+  namespace: wiseco
+spec:
+  serviceName: broker-a-s
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broker-a-s
+  template:
+    metadata:
+     labels:
+       app: broker-a-s
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - broker-a-s
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: broker-a-s
+        image: lex921/rocketmq:0.1
+        imagePullPolicy: Always
+        command: ["sh","-c","/usr/local/rocketmq-4.9.2/bin/mqbroker  -c /usr/local/rocketmq-4.9.2/conf/broker-a-s.properties"]
+        volumeMounts:
+          - mountPath: /root/logs
+            name: rocketmq-data
+            subPath: mq-brokeroptlogs
+          - mountPath: /data/rocketmq
+            name: rocketmq-data
+            subPath: mq-brokeroptstore
+          - name: broker-config
+            mountPath: /usr/local/rocketmq-4.9.2/conf/broker-a-s.properties
+            subPath: broker-a-s.properties
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh","-c","touch /tmp/health"]
+        livenessProbe:
+          exec:
+            command: ["test","-e","/tmp/health"]
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 20911
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+          periodSeconds: 20
+      volumes:
+      - name: broker-config
+        configMap:
+          name: rocketmq-config
+          items:
+          - key: broker-a-s.properties
+            path: broker-a-s.properties
+  volumeClaimTemplates:
+  - metadata:
+      name: rocketmq-data
+      annotations:
+        volume.beta.kubernetes.io/storage-class: "rocketmq-nfs-storage"
+    spec:
+      accessModes:
+        - ReadWriteMany
+      resources:
+        requests:
+          storage: 10Gi

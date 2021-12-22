@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: mq-externals
+  name: mq-externals
+  namespace: wiseco
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: console-port
+    nodePort: 30916
+  selector:
+    app: mq-externals
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mq-externals
+  namespace: wiseco
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mq-externals
+  template:
+    metadata:
+     labels:
+       app: mq-externals
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - mq-externals
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: mq-externals
+        image: lex921/rocketmq-externals:0.1
+        imagePullPolicy: Always
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh","-c","touch /tmp/health"]
+        livenessProbe:
+          exec:
+            command: ["test","-e","/tmp/health"]
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 15
+

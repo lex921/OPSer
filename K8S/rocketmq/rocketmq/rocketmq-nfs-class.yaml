@@ -1,0 +1,7 @@
+apiVersion: storage.k8s.io/v1beta1
+kind: StorageClass
+metadata:
+  name: rocketmq-nfs-storage
+  namespace: wiseco
+provisioner: rocketmq/nfs
+reclaimPolicy: Retain
