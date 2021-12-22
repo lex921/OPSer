@@ -1,0 +1,13 @@
+FROM centos:latest
+
+
+ADD jdk-8u311-linux-x64.tar.gz /usr/local/
+ADD apache-activemq-5.16.0-bin.tar.gz /usr/local/
+RUN cd /usr/local && ls && mv apache-activemq-5.16.0 activemq
+ENV JAVA_HOME=/usr/local/jdk1.8.0_311
+ENV CLASSPATH=.$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+EXPOSE 61616 8161
+
+ENTRYPOINT  /usr/local/activemq/bin/activemq start && /bin/bash

@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: activemq-deployment
+  labels:
+    app: activemq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: activemq
+  template:
+    metadata:
+      labels:
+        app: activemq
+    spec:
+      containers:
+      - name: activemq
+        image: activemq:0.1
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/bash", "-ce", "tail -f /dev/null" ]
+        ports:
+        - containerPort: 61616
+        - containerPort: 8161
+      nodeName: node-1

@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: activemq-service #名称
+  labels:
+    app: activemq
+spec:
+  type: NodePort
+  ports:
+  - name: admin
+    port: 8161
+    targetPort: 8161
+    nodePort: 30081
+  - name: tcp
+    port: 61616
+    targetPort: 61616
+    protocol: TCP
+    nodePort: 30061
+  selector:
+    app: activemq
