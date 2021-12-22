@@ -1,0 +1,1424 @@
+##(二十一)、k8s部署 RocketMQ集群
+###一、基本知识简要说明
+RocketMQ主要有四大组成部分：NameServer、Broker、Producer、Consumer。
+ 
+Nameserver作用：
+NameServer 可以说是 Broker 的注册中心，Broker 在启动的时候，会根据配置信息向所有的 NameServer 进行注册，NameServer 会和每次前来注册的 Broker 保持长连接，并每 30s 检查 Broker 是否还存活，对于宕机的 Broker，NameServer 会将其从列表中剔除。当生产者需要向 Broker 发送消息的时候，就会先从 NameServer 里面获取 Broker 的地址列表，然后负载均衡，选择一台消息服务器进行发送。
+ 
+RocketMQ的部署方式有多种：
+2m-noslave： 多Master模式，无Slave。[双主模式]
+2m-2s-sync： 多Master多Slave模式，同步双写 [双主双从+同步模式]
+2m-2s-async：多Master多Slave模式，异步复制 [双主双从+异步模式]
+RocketMQ 提供了三种方式发送消息：同步、异步和单向：
+同步发送: 指消息发送方发出数据后会在收到接收方发回响应之后才发下一个数据包。
+异步发送: 指发送方发出数据后，不等接收方发回响应，接着发送下个数据包, 异步方式也需要Broker返回确认信息。
+单向发送: 指只负责发送消息而不等待服务器回应且没有回调函数触发。
+ 
+RocketMQ 三种消息发送模式的使用场景：
+具体使用哪种模式，这主要是看应用场景。
+同步发送：主要运用在比较重要一点消息传递/通知等业务：
+异步发送：通常用于对发送消息响应时间要求更高/更快的场景：
+单向发送：适用于某些耗时非常短，但对可靠性要求并不高的场景，例如日志收集。只发送消息，不等待服务器响应，只发送请求不等待应答。此方式发送消息的过程耗时非常短，一般在微秒级别。
+ 
+RocketMQ端口：
+rocketmq 默认端口：9876（即nameserver端口）
+非vip通道端口：10911
+vip通道端口：10909
+10909是VIP通道对应的端口，在JAVA中的消费者对象或者是生产者对象中关闭VIP通道即可无需开放10909端口
+ 
+本案例部署的是RocketMQ的"双主双从+同步模式"，涉及6个pod：
+broker-a 主1
+broker-b 主2
+broker-a-s 从1
+broker-a-s 从2
+NameServer（注册中心）
+rocketmq-externals（可视化web界面）
+
+###二、部署过程记录
+
+####1、使用NFS配置StatefulSet的动态持久化存储
+StatefulSet使用volumeClaimTemplates
+
+#####1.1）在NFS服务器端（172.16.60.238）通过nfs创建rocketmq的共享目录
+使用NFS作为StatefulSet持久化存储的操作记录，分别需要创建nfs-provisioner的rbac、storageclass、nfs-client-provisioner和statefulset的pod。
+
+[root@master-1 rocketmq]# mkdir -p /data/storage/k8s/rocketmq
+[root@master-1 rocketmq]# echo '/data/storage/k8s/rocketmq *(rw,no_root_squash)' >> /etc/exports
+[root@master-1 rocketmq]# exportfs -r
+[root@master-1 rocketmq]# exportfs 
+/data/storage/k8s/rocketmq
+                <world>
+[root@master-1 rocketmq]# showmount -e 172.16.201.134
+Export list for 172.16.201.134:
+/data/storage/k8s/rocketmq *
+
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/data/storage/k8s/rocketmq /data/storage/k8s/rocketmq
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/data/storage/k8s/rocketmq /data/storage/k8s/rocketmq
+
+[root@node-1 ~]#  df -h|grep 134
+172.16.201.134:/data/storage/k8s/rocketmq  100G  4.2G   96G   5% /data/storage/k8s/rocketmq
+
+[root@node-2 ~]# df -h|grep 134
+172.16.201.134:/data/storage/k8s/rocketmq  100G  4.2G   96G   5% /data/storage/k8s/rocketmq     
+
+
+
+#####1.2）创建nfs的rbac
+[root@master-1 activemq]# kubectl create namespace wiseco
+namespace/wiseco created
+
+
+
+
+[root@k8s-master01 rocketmq]# vim nfs-rbac.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfs-provisioner
+  namespace: wiseco
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+   name: nfs-provisioner-runner
+   namespace: wiseco
+rules:
+   -  apiGroups: [""]
+      resources: ["persistentvolumes"]
+      verbs: ["get", "list", "watch", "create", "delete"]
+   -  apiGroups: [""]
+      resources: ["persistentvolumeclaims"]
+      verbs: ["get", "list", "watch", "update"]
+   -  apiGroups: ["storage.k8s.io"]
+      resources: ["storageclasses"]
+      verbs: ["get", "list", "watch"]
+   -  apiGroups: [""]
+      resources: ["events"]
+      verbs: ["watch", "create", "update", "patch"]
+   -  apiGroups: [""]
+      resources: ["services", "endpoints"]
+      verbs: ["get","create","list", "watch","update"]
+   -  apiGroups: ["extensions"]
+      resources: ["podsecuritypolicies"]
+      resourceNames: ["nfs-provisioner"]
+      verbs: ["use"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: run-nfs-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: nfs-provisioner
+    namespace: wiseco
+roleRef:
+  kind: ClusterRole
+  name: nfs-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+
+[root@master-1 rocketmq]# kubectl apply -f nfs-rbac.yaml
+serviceaccount/nfs-provisioner created
+clusterrole.rbac.authorization.k8s.io/nfs-provisioner-runner created
+clusterrolebinding.rbac.authorization.k8s.io/run-nfs-provisioner created
+
+
+[root@master-1 rocketmq]# kubectl get sa -n wiseco|grep nfs
+nfs-provisioner   1         10s
+[root@master-1 rocketmq]# kubectl get clusterrole -n wiseco|grep nfs
+nfs-provisioner-runner                                                 2021-12-21T10:25:32Z
+[root@master-1 rocketmq]# kubectl get clusterrolebinding -n wiseco|grep nfs
+run-nfs-provisioner                                    ClusterRole/nfs-provisioner-runner                                                 18s
+[root@master-1 rocketmq]# 
+
+
+#####1.3）创建rocketmq集群的storageclass
+
+[root@master-1 rocketmq]# vim rocketmq-nfs-class.yaml
+apiVersion: storage.k8s.io/v1beta1
+kind: StorageClass
+metadata:
+  name: rocketmq-nfs-storage
+  namespace: wiseco
+provisioner: rocketmq/nfs
+reclaimPolicy: Retain
+
+
+[root@master-1 rocketmq]# kubectl apply -f rocketmq-nfs-class.yaml
+Warning: storage.k8s.io/v1beta1 StorageClass is deprecated in v1.19+, unavailable in v1.22+; use storage.k8s.io/v1 StorageClass
+storageclass.storage.k8s.io/rocketmq-nfs-storage created
+
+[root@master-1 rocketmq]# kubectl get sc -n wiseco
+NAME                   PROVISIONER    RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+rocketmq-nfs-storage   rocketmq/nfs   Retain          Immediate           false                  8s
+[root@master-1 rocketmq]# 
+
+
+#####1.4）创建rocketmq集群的nfs-client-provisioner
+PROVISIONER_NAME的值一定要和StorageClass中的provisioner相等。
+
+
+[root@master-1 rocketmq]# vim rocketmq-nfs.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rocketmq-nfs-client-provisioner
+  namespace: wiseco
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rocketmq-nfs-client-provisioner
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: rocketmq-nfs-client-provisioner
+    spec:
+      serviceAccount: nfs-provisioner
+      containers:
+        - name: rocketmq-nfs-client-provisioner
+          image: registry.cn-hangzhou.aliyuncs.com/open-ali/nfs-client-provisioner
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: nfs-client-root
+              mountPath:  /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              value: rocketmq/nfs
+            - name: NFS_SERVER
+              value: 172.16.201.134
+            - name: NFS_PATH
+              value: /data/storage/k8s/rocketmq
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server: 172.16.201.134
+            path: /data/storage/k8s/rocketmq
+
+[root@master-1 rocketmq]# kubectl apply -f rocketmq-nfs.yml
+deployment.apps/rocketmq-nfs-client-provisioner created
+[root@master-1 rocketmq]# kubectl get pods -n wiseco|grep nfs
+rocketmq-nfs-client-provisioner-5bc9679c86-9xrws   1/1     Running   0          13s
+
+
+
+####2、创建RocketMQ集群（双主双从同步模式）
+
+本案例采用jdk1.8.0_192的基础镜像
+
+[root@master-1 rocketmq]# ll
+total 12
+-rw-r--r-- 1 root root 1216 Dec 21 18:25 nfs-rbac.yaml
+-rw-r--r-- 1 root root  161 Dec 21 18:26 rocketmq-nfs-class.yaml
+-rw-r--r-- 1 root root 1029 Dec 21 18:28 rocketmq-nfs.yml
+
+
+
+#####2.1）制作rocketmq的image镜像
+rocketmq下载地址：https://mirrors.tuna.tsinghua.edu.cn/apache/rocketmq/
+
+需要注意一点：
+pod可能会启动报错：/usr/local/rocketmq-4.8.0/bin/runbroker.sh: line 90: 18 Killed $JAVA ${JAVA_OPT} $@
+原因分析：/usr/local/rocketmq-4.8.0/bin/runbroker.sh脚本文件里的内存设置的太大, pod因内存不足导致启动失败！
+解决办法：将runbroker.sh脚本文件里的内存设置调整小点：
+
+将JAVA_OPT="${JAVA_OPT} -server -Xms8g -Xmx8g -Xmn4g"
+改为
+JAVA_OPT="${JAVA_OPT} -server -Xms1g -Xmx1g -Xmn512m"
+[root@master-1 rocketmq_image]# vim rocketmq-4.9.2/bin/runbroker.sh 
+...
+JAVA_OPT="${JAVA_OPT} -server -Xms512m -Xmx512m"
+...
+
+打包：
+[root@master-1 rocketmq_image]# tar -czvf rocketmq-4.9.2.tar.gz rocketmq-4.9.2
+
+
+
+[root@master-1 rocketmq_image]# vim Dockerfile
+FROM centos:latest
+
+RUN rm -f /etc/localtime \
+&& ln -sv /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+&& echo "Asia/Shanghai" > /etc/timezone
+
+ENV LANG en_US.UTF-8
+ADD jdk-8u311-linux-x64.tar.gz /usr/local/
+ADD rocketmq-4.9.2.tar.gz /usr/local/
+RUN mkdir -p /data/rocketmq/store
+ENV JAVA_HOME=/usr/local/jdk1.8.0_311
+ENV CLASSPATH=.$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+CMD ["/bin/bash"]
+
+
+制作镜像
+[root@master-1 rocketmq_image]# docker build -f ./Dockerfile -t rocketmq:0.1 . 
+
+
+
+#####2.2）制作nameserver的image镜像
+
+[root@master-1 image]# mkdir nameserver_image
+[root@master-1 image]# ll
+total 0
+drwxr-xr-x 2 root root   6 Dec 21 18:52 nameserver_image
+drwxr-xr-x 3 root root 151 Dec 21 18:51 rocketmq_image
+[root@master-1 image]# cd nameserver_image/
+[root@master-1 nameserver_image]# cp ../rocketmq_image/rocketmq-4.9.2.tar.gz ./
+[root@master-1 nameserver_image]# vim namesrv.properties
+listenPort=20901
+[root@master-1 nameserver_image]# vim Dockerfile
+FROM FROM centos:latest
+ 
+RUN rm -f /etc/localtime \
+&& ln -sv /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+&& echo "Asia/Shanghai" > /etc/timezone
+ 
+ENV LANG en_US.UTF-8
+ADD jdk-8u311-linux-x64.tar.gz /usr/local/
+ADD rocketmq-4.9.2.tar.gz /usr/local/
+COPY namesrv.properties /usr/local/rocketmq-4.9.2/conf/
+ENV JAVA_HOME=/usr/local/jdk1.8.0_311
+ENV CLASSPATH=.$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+ENV PATH=$JAVA_HOME/bin:$PATH
+WORKDIR /usr/local/rocketmq-4.9.2
+CMD ["/usr/local/rocketmq-4.9.2/bin/mqnamesrv","-c","/usr/local/rocketmq-4.9.2/conf/namesrv.properties"]
+
+制作镜像
+[root@master-1 nameserver_image]#docker build -f ./Dockerfile -t rocketmq_namesrv:0.1 . 
+
+
+
+#####2.3）制作rocketmq的web可视化界面的image镜像
+下载地址：https://pan.baidu.com/s/19PROiNivWBiOIV5NkOBBqA
+提取密码：r1cf
+
+[root@master-1 image]# mkdir rocketmq-externals_image
+[root@master-1 rocketmq-externals_image]# wget https://dlcdn.apache.org/maven/maven-3/3.8.4/binaries/apache-maven-3.8.4-bin.tar.gz
+
+[root@master-1 rocketmq-externals_image]# ll
+total 29900
+-rw-r--r--  1 root root  9046177 Nov 14 21:25 apache-maven-3.8.4-bin.tar.gz
+drwxr-xr-x 17 root root     4096 May  9  2018 rocketmq-externals
+-rw-r--r--  1 root root 21562027 Dec 22 00:03 rocketmq-externals.tar.gz
+
+[root@master-1 rocketmq-externals_image]#tar -zvxf rocketmq-externals.tar.gz
+[root@master-1 rocketmq-externals_image]#vim rocketmq-externals/rocketmq-console/src/main/resources/application.properties
+server.contextPath=
+server.port=8080                 #默认访问端口是8080
+spring.application.name=rocketmq-console
+spring.http.encoding.charset=UTF-8
+spring.http.encoding.enabled=true
+spring.http.encoding.force=true
+logging.config=classpath:logback.xml
+rocketmq.config.namesrvAddr=mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901          #如果nameserver是多台集群机器，则后面就配置多个ip+port，即"rocketmq.config.namesrvAddr=ip1:port;ip2:port"
+rocketmq.config.isVIPChannel=true               #注意这个参数，是否设置为false或true取决于rocketmq的版本号。rocketmq低于3.5.8版本,设置为false，默认为true！
+rocketmq.config.dataPath=/tmp/rocketmq-console/data
+rocketmq.config.enableDashBoardCollect=true
+
+删除之前的包，重新打包
+[root@master-1 rocketmq-externals_image]#rm -rf rocketmq-externals.tar.gz
+[root@master-1 rocketmq-externals_image]# tar -zvcf rocketmq-externals.tar.gz rocketmq-externals
+[root@master-1 rocketmq-externals_image]# rm -rf rocketmq-externals
+[root@master-1 rocketmq-externals_image]# ll
+total 29896
+-rw-r--r-- 1 root root  9046177 Nov 14 21:25 apache-maven-3.8.4-bin.tar.gz
+-rw-r--r-- 1 root root 21562564 Dec 22 00:09 rocketmq-externals.tar.gz
+
+Dockerfile镜像文件内容：
+[root@master-1 rocketmq-externals_image]# vim Dockerfile
+FROM centos:latest
+ 
+RUN rm -f /etc/localtime \
+&& ln -sv /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+&& echo "Asia/Shanghai" > /etc/timezone
+ 
+ENV LANG en_US.UTF-8
+ENV MAVEN_HOME /usr/local/maven
+ENV PATH $PATH:$MAVEN_HOME/bin
+ENV JAVA_HOME=/usr/local/jdk1.8.0_311
+ENV CLASSPATH=.$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+ENV PATH=$JAVA_HOME/bin:$PATH
+ 
+ADD jdk-8u311-linux-x64.tar.gz /usr/local/
+ADD rocketmq-externals.tar.gz /usr/local
+ADD apache-maven-3.8.4-bin.tar.gz /usr/local
+RUN mv /usr/local/apache-maven-3.8.4 /usr/local/maven
+WORKDIR /usr/local/rocketmq-externals/rocketmq-console/
+RUN mvn clean package -Dmaven.test.skip=true
+ 
+ 
+WORKDIR /usr/local/rocketmq-externals/rocketmq-console/target
+EXPOSE 8080
+CMD ["nohup","java","-jar","rocketmq-console-ng-1.0.0.jar","&"]
+
+
+制作镜像(时间很长)
+[root@master-1 rocketmq_image]# docker build -f ./Dockerfile -t rocketmq-externals:0.1 . 
+...............
+Downloaded from central: https://repo.maven.apache.org/maven2/org/apache/maven/shared/maven-shared-utils/3.0.1/maven-shared-utils-3.0.1.jar (154 kB at 6.3 kB/s)
+[INFO] Building jar: /usr/local/rocketmq-externals/rocketmq-console/target/rocketmq-console-ng-1.0.0-sources.jar
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  30:40 min
+[INFO] Finished at: 2021-12-22T00:50:23+08:00
+[INFO] ------------------------------------------------------------------------
+Removing intermediate container bb66475d73ac
+ ---> 352f959f6a96
+Step 15/17 : WORKDIR /usr/local/rocketmq-externals/rocketmq-console/target
+ ---> Running in 4b7344848b93
+Removing intermediate container 4b7344848b93
+ ---> abdd7154e6d4
+Step 16/17 : EXPOSE 8080
+ ---> Running in 4d4e944f7299
+Removing intermediate container 4d4e944f7299
+ ---> 01f6dd084366
+Step 17/17 : CMD ["nohup","java","-jar","rocketmq-console-ng-1.0.0.jar","&"]
+ ---> Running in 9e4a4195c4b8
+Removing intermediate container 9e4a4195c4b8
+ ---> b9a3d21b08c9
+Successfully built b9a3d21b08c9
+Successfully tagged rocketmq-externals:0.1
+[root@master-1 rocketmq-externals_image]# 
+
+
+3个景象完成：
+[root@master-1 rocketmq-externals_image]# docker images|grep rocketmq
+rocketmq-externals                                                0.1                 b9a3d21b08c9        About a minute ago   787MB
+rocketmq_namesrv                                                  0.1                 d7f093a52ae4        6 hours ago          619MB
+rocketmq                                                          0.1                 6392bb133d05        6 hours ago          619MB
+[root@master-1 rocketmq-externals_image]# 
+
+[root@master-1 rocketmq-externals_image]# ll
+total 173260
+-rw-r--r-- 1 root root   9046177 Nov 14 21:25 apache-maven-3.8.4-bin.tar.gz
+-rw-r--r-- 1 root root       793 Dec 22 00:19 Dockerfile
+-rw-r--r-- 1 root root 146799982 Dec 21 00:38 jdk-8u311-linux-x64.tar.gz
+-rw-r--r-- 1 root root  21562564 Dec 22 00:09 rocketmq-externals.tar.gz
+
+
+#######注意：如果没有仓库，每个节点都要做景象
+
+
+####3、准备配置文件，创建configmap
+RocketMQ默认提供的配置文件都是最基本的，很多配置都是默认值，在生产环境中我们需要根据实际情况进行修改。
+本案例中使用的Pod的namespace命名空间是 wiseco。
+broker的端口是20911、nameserver的端口是20901
+
+
+[root@master-1 rocketmq]# ll
+total 12
+drwxr-xr-x 5 root root   84 Dec 22 00:25 image
+-rw-r--r-- 1 root root 1216 Dec 21 18:25 nfs-rbac.yaml
+-rw-r--r-- 1 root root  161 Dec 21 18:26 rocketmq-nfs-class.yaml
+-rw-r--r-- 1 root root 1029 Dec 21 18:28 rocketmq-nfs.yml
+
+[root@master-1 rocketmq]# mkdir config
+[root@master-1 rocketmq]# cd config/
+[root@master-1 rocketmq]# ll
+total 12
+drwxr-xr-x 2 root root    6 Dec 22 00:25 config
+drwxr-xr-x 5 root root   84 Dec 22 00:25 image
+-rw-r--r-- 1 root root 1216 Dec 21 18:25 nfs-rbac.yaml
+-rw-r--r-- 1 root root  161 Dec 21 18:26 rocketmq-nfs-class.yaml
+-rw-r--r-- 1 root root 1029 Dec 21 18:28 rocketmq-nfs.yml
+[root@master-1 rocketmq]# 
+
+在config目录下编辑：
+RocketMQ"双主双从集群模式"的四个配置文件。
+以及nameserver配置文件
+
+[root@master-1 config]# ll
+total 16
+-rw-r--r-- 1 root root 438 Dec 22 00:26 broker-a.properties
+-rw-r--r-- 1 root root 462 Dec 22 00:26 broker-a-s.properties
+-rw-r--r-- 1 root root 463 Dec 22 00:27 broker-b.properties
+-rw-r--r-- 1 root root 462 Dec 22 00:27 broker-b-s.properties
+
+broker-a.properties 配置文件：
+[root@k8s-master01 config]# cat broker-a.properties
+brokerClusterName=rocketmq-cluster
+brokerName=broker-a
+brokerId=0
+namesrvAddr=mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901
+defaultTopicQueueNums=4
+autoCreateTopicEnable=true
+autoCreateSubscriptionGroup=true
+listenPort=20911
+deleteWhen=04
+fileReservedTime=120
+mapedFileSizeCommitLog=1073741824
+mapedFileSizeConsumeQueue=300000
+diskMaxUsedSpaceRatio=88
+storePathRootDir=/data/rocketmq/store
+maxMessageSize=65536
+brokerRole=MASTER
+　　
+
+broker-a-s.properties 配置文件：
+[root@k8s-master01 config]# cat broker-a-s.properties           
+brokerClusterName=rocketmq-cluster
+brokerName=broker-a
+brokerId=1
+namesrvAddr=mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901
+defaultTopicQueueNums=4
+autoCreateTopicEnable=true
+autoCreateSubscriptionGroup=true
+listenPort=20911
+deleteWhen=04
+fileReservedTime=120
+mapedFileSizeCommitLog=1073741824
+mapedFileSizeConsumeQueue=300000
+diskMaxUsedSpaceRatio=88
+storePathRootDir=/data/rocketmq/store
+maxMessageSize=65536
+brokerRole=SLAVE
+flushDiskType=SYNC_FLUSH
+　　
+
+broker-b.properties 配置文件：
+[root@k8s-master01 config]# cat broker-b.properties
+brokerClusterName=rocketmq-cluster
+brokerName=broker-b
+brokerId=0
+namesrvAddr=mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901
+defaultTopicQueueNums=4
+autoCreateTopicEnable=true
+autoCreateSubscriptionGroup=true
+listenPort=20911
+deleteWhen=04
+fileReservedTime=120
+mapedFileSizeCommitLog=1073741824
+mapedFileSizeConsumeQueue=300000
+diskMaxUsedSpaceRatio=88
+storePathRootDir=/data/rocketmq/store
+maxMessageSize=65536
+brokerRole=MASTER
+flushDiskType=SYNC_FLUSH
+　　
+
+broker-b-s.properties 配置文件：
+[root@k8s-master01 config]# cat broker-b-s.properties
+brokerClusterName=rocketmq-cluster
+brokerName=broker-b
+brokerId=1
+namesrvAddr=mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901
+defaultTopicQueueNums=4
+autoCreateTopicEnable=true
+autoCreateSubscriptionGroup=true
+listenPort=20911
+deleteWhen=04
+fileReservedTime=120
+mapedFileSizeCommitLog=1073741824
+mapedFileSizeConsumeQueue=300000
+diskMaxUsedSpaceRatio=88
+storePathRootDir=/data/rocketmq/store
+maxMessageSize=65536
+brokerRole=SLAVE
+flushDiskType=SYNC_FLUSH
+
+
+依据上面rocketmq的4个配置文件创建configmap存储卷
+[root@master-1 config]# pwd
+/root/mq/rocketmq/config
+[root@master-1 config]#  
+[root@master-1 config]# ll
+total 16
+-rw-r--r-- 1 root root 438 Dec 22 00:26 broker-a.properties
+-rw-r--r-- 1 root root 462 Dec 22 00:26 broker-a-s.properties
+-rw-r--r-- 1 root root 463 Dec 22 00:27 broker-b.properties
+-rw-r--r-- 1 root root 462 Dec 22 00:27 broker-b-s.properties
+[root@master-1 config]# 
+
+
+[root@master-1 config]# kubectl create configmap rocketmq-config --from-file=broker-a.properties --from-file=broker-b.properties --from-file=broker-a-s.properties --from-file=broker-b-s.properties  -n wiseco
+configmap/rocketmq-config created
+
+[root@master-1 config]# kubectl get cm -n wiseco|grep rocketmq
+rocketmq-config   4      11s
+
+[root@master-1 config]#  kubectl describe cm rocketmq-config -n wiseco
+Name:         rocketmq-config
+Namespace:    wiseco
+Labels:       <none>
+Annotations:  <none>
+
+Data
+====
+broker-b-s.properties:
+----
+brokerClusterName=rocketmq-cluster
+brokerName=broker-b
+brokerId=1
+namesrvAddr=mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901
+defaultTopicQueueNums=4
+autoCreateTopicEnable=true
+autoCreateSubscriptionGroup=true
+listenPort=20911
+deleteWhen=04
+fileReservedTime=120
+mapedFileSizeCommitLog=1073741824
+mapedFileSizeConsumeQueue=300000
+diskMaxUsedSpaceRatio=88
+storePathRootDir=/data/rocketmq/store
+maxMessageSize=65536
+brokerRole=SLAVE
+flushDiskType=SYNC_FLUSH
+
+broker-b.properties:
+----
+brokerClusterName=rocketmq-cluster
+brokerName=broker-b
+brokerId=0
+namesrvAddr=mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901
+defaultTopicQueueNums=4
+autoCreateTopicEnable=true
+autoCreateSubscriptionGroup=true
+listenPort=20911
+deleteWhen=04
+fileReservedTime=120
+mapedFileSizeCommitLog=1073741824
+mapedFileSizeConsumeQueue=300000
+diskMaxUsedSpaceRatio=88
+storePathRootDir=/data/rocketmq/store
+maxMessageSize=65536
+brokerRole=MASTER
+flushDiskType=SYNC_FLUSH
+
+broker-a-s.properties:
+----
+brokerClusterName=rocketmq-cluster
+brokerName=broker-a
+brokerId=1
+namesrvAddr=mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901
+defaultTopicQueueNums=4
+autoCreateTopicEnable=true
+autoCreateSubscriptionGroup=true
+listenPort=20911
+deleteWhen=04
+fileReservedTime=120
+mapedFileSizeCommitLog=1073741824
+mapedFileSizeConsumeQueue=300000
+diskMaxUsedSpaceRatio=88
+storePathRootDir=/data/rocketmq/store
+maxMessageSize=65536
+brokerRole=SLAVE
+flushDiskType=SYNC_FLUSH
+
+broker-a.properties:
+----
+brokerClusterName=rocketmq-cluster
+brokerName=broker-a
+brokerId=0
+namesrvAddr=mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901
+defaultTopicQueueNums=4
+autoCreateTopicEnable=true
+autoCreateSubscriptionGroup=true
+listenPort=20911
+deleteWhen=04
+fileReservedTime=120
+mapedFileSizeCommitLog=1073741824
+mapedFileSizeConsumeQueue=300000
+diskMaxUsedSpaceRatio=88
+storePathRootDir=/data/rocketmq/store
+maxMessageSize=65536
+brokerRole=MASTER
+
+Events:  <none>
+[root@master-1 config]# 
+
+
+####4、部署rocketmq容器实例
+启动命令-c可以指定配置文件，NameSvrAddr使用配置文件内指定的，配置文件使用前面的configmap挂载进来，subPath可以指定具体文件和目录。使用StatefulSet控制器部署rocketmq-a和rocketmq-b 两个master的pod。
+
+[root@master-1 rocketmq]# pwd
+/root/mq/rocketmq
+[root@master-1 rocketmq]# ll
+total 12
+drwxr-xr-x 2 root root  118 Dec 22 00:27 config
+drwxr-xr-x 5 root root   84 Dec 22 00:25 image
+-rw-r--r-- 1 root root 1216 Dec 21 18:25 nfs-rbac.yaml
+-rw-r--r-- 1 root root  161 Dec 21 18:26 rocketmq-nfs-class.yaml
+-rw-r--r-- 1 root root 1029 Dec 21 18:28 rocketmq-nfs.yml
+[root@master-1 rocketmq]# 
+
+[root@master-1 rocketmq]# mkdir deploy
+[root@master-1 rocketmq]# cd deploy/
+[root@master-1 deploy]# ll
+total 24
+-rw-r--r-- 1 root root 2261 Dec 22 00:34 broker-a-deployment.yaml
+-rw-r--r-- 1 root root 2380 Dec 22 00:35 broker-a-s-deployment.yaml
+-rw-r--r-- 1 root root 2260 Dec 22 00:36 broker-b-deployment.yaml
+-rw-r--r-- 1 root root 2380 Dec 22 00:38 broker-b-s-deployment.yaml
+-rw-r--r-- 1 root root 1419 Dec 22 00:39 namesrv-deployment.yaml
+-rw-r--r-- 1 root root 1352 Dec 22 00:49 rocketmq-externals-deployment.yaml
+[root@master-1 deploy]# 
+
+
+broker-a-deployment.yaml 文件内容:
+[root@master-1 deploy]# vim broker-a-deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: broker-a
+  name: broker-a
+  namespace: wiseco
+spec:
+  type: NodePort
+  ports:
+  - port: 20911
+    targetPort: 20911
+    name: broker-port
+    nodePort: 30911
+  selector:
+    app: broker-a
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: broker-a
+  namespace: wiseco
+spec:
+  serviceName: broker-a
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broker-a
+  template:
+    metadata:
+     labels:
+       app: broker-a
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - broker-a
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: broker-a
+        image: lex921/rocketmq:0.1
+        imagePullPolicy: Always
+        command: ["sh","-c","/usr/local/rocketmq-4.9.2/bin/mqbroker  -c /usr/local/rocketmq-4.9.2/conf/broker-a.properties"]
+        volumeMounts:
+          - mountPath: /root/logs
+            name: rocketmq-data
+            subPath: mq-brokeroptlogs
+          - mountPath: /data/rocketmq
+            name: rocketmq-data
+            subPath: mq-brokeroptstore
+          - name: broker-config
+            mountPath: /usr/local/rocketmq-4.9.2/conf/broker-a.properties
+            subPath: broker-a.properties
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh","-c","touch /tmp/health"]
+        livenessProbe:
+          exec:
+            command: ["test","-e","/tmp/health"]
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 20911
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+          periodSeconds: 20
+      volumes:
+      - name: broker-config
+        configMap:
+          name: rocketmq-config
+  volumeClaimTemplates:
+  - metadata:
+      name: rocketmq-data
+      annotations:
+        volume.beta.kubernetes.io/storage-class: "rocketmq-nfs-storage"
+    spec:
+      accessModes:
+        - ReadWriteMany
+      resources:
+        requests:
+          storage: 10Gi
+
+broker-a-s-deployment.yaml 文件内容:
+[root@master-1 deploy]# vim broker-a-s-deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: broker-a-s
+  name: broker-a-s
+  namespace: wiseco
+spec:
+  type: NodePort
+  ports:
+  - port: 20911
+    targetPort: 20911
+    name: broker-port
+    nodePort: 30912
+  selector:
+    app: broker-a-s
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: broker-a-s
+  namespace: wiseco
+spec:
+  serviceName: broker-a-s
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broker-a-s
+  template:
+    metadata:
+     labels:
+       app: broker-a-s
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - broker-a-s
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: broker-a-s
+        image: lex921/rocketmq:0.1
+        imagePullPolicy: Always
+        command: ["sh","-c","/usr/local/rocketmq-4.9.2/bin/mqbroker  -c /usr/local/rocketmq-4.9.2/conf/broker-a-s.properties"]
+        volumeMounts:
+          - mountPath: /root/logs
+            name: rocketmq-data
+            subPath: mq-brokeroptlogs
+          - mountPath: /data/rocketmq
+            name: rocketmq-data
+            subPath: mq-brokeroptstore
+          - name: broker-config
+            mountPath: /usr/local/rocketmq-4.9.2/conf/broker-a-s.properties
+            subPath: broker-a-s.properties
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh","-c","touch /tmp/health"]
+        livenessProbe:
+          exec:
+            command: ["test","-e","/tmp/health"]
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 20911
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+          periodSeconds: 20
+      volumes:
+      - name: broker-config
+        configMap:
+          name: rocketmq-config
+          items:
+          - key: broker-a-s.properties
+            path: broker-a-s.properties
+  volumeClaimTemplates:
+  - metadata:
+      name: rocketmq-data
+      annotations:
+        volume.beta.kubernetes.io/storage-class: "rocketmq-nfs-storage"
+    spec:
+      accessModes:
+        - ReadWriteMany
+      resources:
+        requests:
+          storage: 10Gi
+
+broker-b-deployment.yaml 文件内容:
+[root@master-1 deploy]# vim broker-b-deployment.yaml  
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: broker-b
+  name: broker-b
+  namespace: wiseco
+spec:
+  type: NodePort
+  ports:
+  - port: 20911
+    targetPort: 20911
+    name: broker-port
+    nodePort: 30913
+  selector:
+    app: broker-b
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: broker-b
+  namespace: wiseco
+spec:
+  serviceName: broker-b
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broker-b
+  template:
+    metadata:
+     labels:
+       app: broker-b
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - broker-b
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: broker-b
+        image: lex921/rocketmq:0.1
+        imagePullPolicy: Always
+        command: ["sh","-c","/usr/local/rocketmq-4.9.2/bin/mqbroker  -c /usr/local/rocketmq-4.9.2/conf/broker-b.properties"]
+        volumeMounts:
+          - mountPath: /root/logs
+            name: rocketmq-data
+            subPath: mq-brokeroptlogs
+          - mountPath: /data/rocketmq
+            name: rocketmq-data
+            subPath: mq-brokeroptstore
+          - name: broker-config
+            mountPath: /usr/local/rocketmq-4.9.2/conf/broker-b.properties
+            subPath: broker-b.properties
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh","-c","touch /tmp/health"]
+        livenessProbe:
+          exec:
+            command: ["test","-e","/tmp/health"]
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 20911
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+          periodSeconds: 20
+      volumes:
+      - name: broker-config
+        configMap:
+          name: rocketmq-config
+  volumeClaimTemplates:
+  - metadata:
+      name: rocketmq-data
+      annotations:
+        volume.beta.kubernetes.io/storage-class: "rocketmq-nfs-storage"
+    spec:
+      accessModes:
+        - ReadWriteMany
+      resources:
+        requests:
+          storage: 10Gi
+
+broker-b-s-deployment.yaml 文件内容:
+[root@master-1 deploy]# vim broker-b-s-deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: broker-b-s
+  name: broker-b-s
+  namespace: wiseco
+spec:
+  type: NodePort
+  ports:
+  - port: 20911
+    targetPort: 20911
+    name: broker-port
+    nodePort: 30914
+  selector:
+    app: broker-b-s
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: broker-b-s
+  namespace: wiseco
+spec:
+  serviceName: broker-b-s
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broker-b-s
+  template:
+    metadata:
+     labels:
+       app: broker-b-s
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - broker-b-s
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: broker-b-s
+        image: lex921/rocketmq:0.1
+        imagePullPolicy: Always
+        command: ["sh","-c","/usr/local/rocketmq-4.9.2/bin/mqbroker  -c /usr/local/rocketmq-4.9.2/conf/broker-b-s.properties"]
+        volumeMounts:
+          - mountPath: /root/logs
+            name: rocketmq-data
+            subPath: mq-brokeroptlogs
+          - mountPath: /data/rocketmq
+            name: rocketmq-data
+            subPath: mq-brokeroptstore
+          - name: broker-config
+            mountPath: /usr/local/rocketmq-4.9.2/conf/broker-b-s.properties
+            subPath: broker-b-s.properties
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh","-c","touch /tmp/health"]
+        livenessProbe:
+          exec:
+            command: ["test","-e","/tmp/health"]
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 20911
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+          periodSeconds: 20
+      volumes:
+      - name: broker-config
+        configMap:
+          name: rocketmq-config
+          items:
+          - key: broker-b-s.properties
+            path: broker-b-s.properties
+  volumeClaimTemplates:
+  - metadata:
+      name: rocketmq-data
+      annotations:
+        volume.beta.kubernetes.io/storage-class: "rocketmq-nfs-storage"
+    spec:
+      accessModes:
+        - ReadWriteMany
+      resources:
+        requests:
+          storage: 10Gi
+
+namesrv-deployment.yaml文件内容:
+[root@master-1 deploy]# vim namesrv-deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: mq-namesrv
+  name: mq-namesrv
+  namespace: wiseco
+spec:
+  type: NodePort
+  ports:
+  - port: 20901
+    targetPort: 20901
+    name: namesrv-port
+    nodePort: 30915
+  selector:
+    app: mq-namesrv
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mq-namesrv
+  namespace: wiseco
+spec:
+  serviceName: mq-namesrv
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mq-namesrv
+  template:
+    metadata:
+     labels:
+       app: mq-namesrv
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - mq-namesrv
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: mq-namesrv
+        image: lex921/rocketmq_namesrv:0.1
+        imagePullPolicy: Always
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh","-c","touch /tmp/health"]
+        livenessProbe:
+          exec:
+            command: ["test","-e","/tmp/health"]
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 20901
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+          periodSeconds: 20
+
+rocketmq-externals-deployment.yaml 文件内容:
+[root@master-1 deploy]# vim rocketmq-externals-deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: mq-externals
+  name: mq-externals
+  namespace: wiseco
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: console-port
+    nodePort: 30916
+  selector:
+    app: mq-externals
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mq-externals
+  namespace: wiseco
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mq-externals
+  template:
+    metadata:
+     labels:
+       app: mq-externals
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - mq-externals
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: mq-externals
+        image: lex921/rocketmq-externals:0.1
+        imagePullPolicy: Always
+        lifecycle:
+          postStart:
+            exec:
+              command: ["/bin/sh","-c","touch /tmp/health"]
+        livenessProbe:
+          exec:
+            command: ["test","-e","/tmp/health"]
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 15
+
+
+[root@master-1 deploy]# ll
+total 24
+-rw-r--r-- 1 root root 2261 Dec 22 00:34 broker-a-deployment.yaml
+-rw-r--r-- 1 root root 2380 Dec 22 00:35 broker-a-s-deployment.yaml
+-rw-r--r-- 1 root root 2260 Dec 22 00:36 broker-b-deployment.yaml
+-rw-r--r-- 1 root root 2380 Dec 22 00:38 broker-b-s-deployment.yaml
+-rw-r--r-- 1 root root 1419 Dec 22 00:39 namesrv-deployment.yaml
+-rw-r--r-- 1 root root 1352 Dec 22 00:49 rocketmq-externals-deployment.yaml
+[root@master-1 deploy]# 
+
+
+部署rockermq相应pod
+kubectl delete -f .
+[root@master-1 deploy]# kubectl apply -f .
+service/broker-a created
+statefulset.apps/broker-a created
+service/broker-a-s created
+statefulset.apps/broker-a-s created
+service/broker-b created
+statefulset.apps/broker-b created
+service/broker-b-s created
+statefulset.apps/broker-b-s created
+service/mq-namesrv created
+statefulset.apps/mq-namesrv created
+service/mq-externals created
+deployment.apps/mq-externals created
+[root@master-1 deploy]# 
+
+
+
+
+https://hub.docker.com/repositories
+
+lex921/cicd
+
+
+上传景象
+[root@master-1 deploy]# docker tag rocketmq_namesrv:0.1 lex921/rocketmq_namesrv:0.1
+[root@master-1 deploy]# docker push  lex921/rocketmq_namesrv:0.1
+The push refers to repository [docker.io/lex921/rocketmq_namesrv]
+0b9262c74c5a: Pushed 
+d83460144beb: Pushed 
+6010b0dafdb6: Pushed 
+541300130327: Pushed 
+74ddd0ec08fa: Pushed 
+0.1: digest: sha256:fb1c0478997be5ca4b9494597632d38108eb7c910de84e72e99cb41099226b40 size: 1368
+[root@master-1 deploy]# 
+
+
+[root@node-1 rocketmq-externals_image]# docker tag rocketmq:0.1 lex921/rocketmq:0.1
+[root@node-1 rocketmq-externals_image]# docker push  lex921/rocketmq:0.1
+The push refers to repository [docker.io/lex921/rocketmq]
+098cfcd3710c: Pushed 
+cd706737122a: Pushed 
+43984db81f91: Pushed 
+f798b2957a9d: Pushed 
+74ddd0ec08fa: Pushed 
+0.1: digest: sha256:57a477df020a7db65e6a48986d59963bf3d6be6ce930501c1fb3186d7a539de0 size: 1368
+
+
+
+[root@master-1 deploy]# docker tag rocketmq-externals:0.1 lex921/rocketmq-externals:0.1
+[root@master-1 deploy]# docker push  lex921/rocketmq-externals:0.1
+The push refers to repository [docker.io/lex921/rocketmq-externals]
+2cb9e1568757: Pushed 
+ec8d84e06198: Pushed 
+d2508531e85b: Pushed 
+dcb9a972b7e0: Pushed 
+cd8b1ce8fe99: Pushed 
+541300130327: Mounted from lex921/rocketmq_namesrv 
+74ddd0ec08fa: Mounted from lex921/rocketmq_namesrv 
+0.1: digest: sha256:d908a07c681fc05c928bf02598eff45b50730b4d0d37e439ce728405e5e87350 size: 1795
+[root@master-1 deploy]# 
+
+
+kubectl delete -f broker-a-deployment.yaml
+kubectl apply -f broker-a-deployment.yaml
+kubectl delete -f 
+kubectl apply -f
+kubectl  describe pod  -n wiseco mq-namesrv-0
+
+
+
+
+查看pod、svc
+[root@k8s-master01 deploy]# kubectl get pods -n wiseco
+
+[root@master-1 deploy]# kubectl get svc -n wiseco    
+NAME         TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)           AGE
+broker-a     NodePort   10.1.143.46    <none>        20911:30911/TCP   21m
+broker-a-s   NodePort   10.1.101.224   <none>        20911:30912/TCP   16m
+broker-b     NodePort   10.1.158.168   <none>        20911:30913/TCP   12m
+broker-b-s   NodePort   10.1.225.22    <none>        20911:30914/TCP   12m
+
+[root@master-1 deploy]# kubectl get pods -A
+NAMESPACE     NAME                                               READY   STATUS    RESTARTS   AGE
+default       activemq-deployment-68b8596b6b-mn9fw               1/1     Running   1          24h
+default       nginx-6799fc88d8-xccsn                             1/1     Running   2          24h
+kube-system   coredns-6d56c8448f-42ldb                           1/1     Running   2          25h
+kube-system   coredns-6d56c8448f-w2cls                           1/1     Running   2          25h
+kube-system   etcd-master-1                                      1/1     Running   4          25h
+kube-system   kube-apiserver-master-1                            1/1     Running   4          25h
+kube-system   kube-controller-manager-master-1                   1/1     Running   2          24h
+kube-system   kube-flannel-ds-8bhd2                              1/1     Running   2          24h
+kube-system   kube-flannel-ds-s7s8w                              1/1     Running   2          24h
+kube-system   kube-flannel-ds-xw49t                              1/1     Running   6          24h
+kube-system   kube-proxy-m7wcs                                   1/1     Running   4          25h
+kube-system   kube-proxy-p8zrt                                   1/1     Running   3          25h
+kube-system   kube-proxy-tr7wx                                   1/1     Running   3          24h
+kube-system   kube-scheduler-master-1                            1/1     Running   2          24h
+wiseco        broker-a-0                                         1/1     Running   1          34m
+wiseco        broker-a-s-0                                       1/1     Running   1          30m
+wiseco        broker-b-0                                         1/1     Running   1          26m
+wiseco        broker-b-s-0                                       1/1     Running   0          25m
+wiseco        rocketmq-nfs-client-provisioner-5bc9679c86-gsqws   1/1     Running   1          13h
+[root@master-1 deploy]# 
+
+
+[root@master-1 deploy]# kubectl get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                               STORAGECLASS           REASON   AGE
+pvc-0d973e7f-679a-44e7-9bae-7a7910149098   10Gi       RWX            Delete           Bound    wiseco/rocketmq-data-broker-a-s-0   rocketmq-nfs-storage            12h
+pvc-b504d16b-d25f-47ed-a0ec-dbd571be4d20   10Gi       RWX            Delete           Bound    wiseco/rocketmq-data-broker-b-0     rocketmq-nfs-storage            12h
+pvc-cfd76063-fd78-41e1-a216-eea00ac02ddd   10Gi       RWX            Delete           Bound    wiseco/rocketmq-data-broker-b-s-0   rocketmq-nfs-storage            12h
+pvc-f7380bb2-9585-4c65-86e3-4ec17458c0b9   10Gi       RWX            Delete           Bound    wiseco/rocketmq-data-broker-a-0     rocketmq-nfs-storage            12h
+
+[root@master-1 deploy]# kubectl get pvc -n wiseco
+NAME                         STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS           AGE
+rocketmq-data-broker-a-0     Bound    pvc-f7380bb2-9585-4c65-86e3-4ec17458c0b9   10Gi       RWX            rocketmq-nfs-storage   12h
+rocketmq-data-broker-a-s-0   Bound    pvc-0d973e7f-679a-44e7-9bae-7a7910149098   10Gi       RWX            rocketmq-nfs-storage   12h
+rocketmq-data-broker-b-0     Bound    pvc-b504d16b-d25f-47ed-a0ec-dbd571be4d20   10Gi       RWX            rocketmq-nfs-storage   12h
+rocketmq-data-broker-b-s-0   Bound    pvc-cfd76063-fd78-41e1-a216-eea00ac02ddd   10Gi       RWX            rocketmq-nfs-storage   12h
+
+[root@k8s-master01 deploy]# 
+
+
+查看NFS共享存储
+NFS服务器（172.16.60.238），查看共享目录/data/storage/k8s/rocketmq
+[root@master-1 deploy]# cd /data/storage/k8s/rocketmq/
+[root@master-1 rocketmq]# ll
+total 0
+drwxrwxrwx 4 root root 55 Feb  3 00:02 wiseco-rocketmq-data-broker-a-0-pvc-77d7358e-ee27-49f2-bf29-7c31fa6250b1
+drwxrwxrwx 4 root root 55 Feb  3 00:02 wiseco-rocketmq-data-broker-a-s-0-pvc-4d31cdfb-94c3-4973-b3c3-e62ce88ae29e
+drwxrwxrwx 4 root root 55 Feb  3 00:02 wiseco-rocketmq-data-broker-b-0-pvc-d1d06c6b-2b3d-43e3-88cf-0d56e2eb8bd7
+drwxrwxrwx 4 root root 55 Feb  3 00:02 wiseco-rocketmq-data-broker-b-s-0-pvc-f05d79c8-c2b0-4f00-b300-7db23a3a0c28
+
+[root@master-1 rocketmq]#  ll wiseco-rocketmq-data-broker-a-0-pvc-77d7358e-ee27-49f2-bf29-7c31fa6250b1/
+total 0
+drwxrwxrwx 3 root root 26 Feb  3 00:02 mq-brokeroptlogs
+drwxrwxrwx 3 root root 19 Feb  3 00:02 mq-brokeroptstore
+
+[root@master-1 rocketmq]#  ll wiseco-rocketmq-data-broker-a-0-pvc-77d7358e-ee27-49f2-bf29-7c31fa6250b1/mq-brokeroptstore/
+total 0
+drwxr-xr-x 3 root root 63 Feb  3 00:02 store
+
+[root@master-1 rocketmq]#  ll wiseco-rocketmq-data-broker-a-0-pvc-77d7358e-ee27-49f2-bf29-7c31fa6250b1/mq-brokeroptstore/store/
+total 8
+-rw-r--r-- 1 root root    0 Feb  3 00:02 abort
+-rw-r--r-- 1 root root 4096 Feb  3 00:43 checkpoint
+drwxr-xr-x 2 root root  193 Feb  3 00:44 config
+-rw-r--r-- 1 root root    4 Feb  3 00:02 lock
+
+
+####5、rockermq的可视化界面
+访问http://node节点ip:30916
+
+点点点：
+Cluster --> OPS 可以看到域名
+
+
+####6、tool.sh工具测试收发消息
+自动创建开启后，可以利用mq自动的tool.sh工具测试收发消息。「 注意是开启了自动创建topic后才行 」
+[root@master-1 rocketmq]# kubectl get pods -n wiseco
+NAME                                               READY   STATUS    RESTARTS   AGE
+broker-a-0                                         1/1     Running   0          9h
+broker-a-s-0                                       1/1     Running   0          9h
+broker-b-0                                         1/1     Running   0          9h
+broker-b-s-0                                       1/1     Running   0          9h
+mq-externals-57c9ddddcb-cffj5                      1/1     Running   0          9h
+mq-namesrv-0                                       1/1     Running   0          9h
+rocketmq-nfs-client-provisioner-59d8bbd947-k294r   1/1     Running   1          46h
+ 
+[root@master-1 rocketmq]# kubectl exec -ti broker-a-0 -n wiseco -- /bin/bash
+[root@broker-a-0 /]# cd /usr/local/rocketmq-4.9.2/bin/
+ 
+[root@broker-a-0 bin]# export NAMESRV_ADDR=mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901
+[root@broker-a-0 bin]# echo $NAMESRV_ADDR
+mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901
+
+生产者发送消息
+执行命令后，稍微等一下，等到出现下面的输出结果即为正常
+[root@broker-a-0 bin]# ./tools.sh org.apache.rocketmq.example.quickstart.Producer
+10:00:21.965 [main] DEBUG i.n.u.i.l.InternalLoggerFactory - Using SLF4J as the default logging framework
+RocketMQLog:WARN No appenders could be found for logger (io.netty.util.internal.PlatformDependent0).
+RocketMQLog:WARN Please initialize the logger system properly.
+SendResult [sendStatus=SEND_OK, msgId=7F00000148894DC639960C7260600000, offsetMsgId=AC1E55D0000051AF0000000000000000, messageQueue=MessageQueue [topic=TopicTest, brokerName=broker-a, queueId=0], queueOffset=0]
+SendResult [sendStatus=SEND_OK, msgId=7F00000148894DC639960C7262B70001, offsetMsgId=AC1E55D0000051AF00000000000000CB, messageQueue=MessageQueue [topic=TopicTest, brokerName=broker-a, queueId=1], queueOffset=0]
+SendResult [sendStatus=SEND_OK, msgId=7F00000148894DC639960C7262CE0002, offsetMsgId=AC1E55D0000051AF0000000000000196, messageQueue=MessageQueue [topic=TopicTest, brokerName=broker-a, queueId=2], queueOffset=0]
+SendResult [sendStatus=SEND_OK, msgId=7F00000148894DC639960C7262E80003, offsetMsgId=AC1E55D0000051AF0000000000000261, messageQueue=MessageQueue [topic=TopicTest, brokerName=broker-a, queueId=3], queueOffset=0]
+SendResult [sendStatus=SEND_OK, msgId=7F00000148894DC639960C7262F60004, offsetMsgId=AC1ED946000051AF0000000000000000, messageQueue=MessageQueue [topic=TopicTest, brokerName=broker-b, queueId=0], queueOffset=0]
+................
+................
+ 
+消费者接受消息：
+执行命令后，稍微等一下，等到出现下面的输出结果即为正常
+[root@broker-a-0 bin]# ./tools.sh org.apache.rocketmq.example.quickstart.Consumer
+10:04:02.870 [main] DEBUG i.n.u.i.l.InternalLoggerFactory - Using SLF4J as the default logging framework
+Consumer Started.
+ConsumeMessageThread_1 Receive New Messages: [MessageExt [brokerName=broker-b, queueId=0, storeSize=203, queueOffset=8, sysFlag=0, bornTimestamp=1612317805388, bornHost=/172.16.201.134:42326, storeTimestamp=1612317805389, storeHost=/172.30.217.70:20911, msgId=AC1ED946000051AF00000000000010B6, commitLogOffset=4278, bodyCRC=1032136437, reconsumeTimes=0, preparedTransactionOffset=0, toString()=Message{topic='TopicTest', flag=0, properties={MIN_OFFSET=0, MAX_OFFSET=20, CONSUME_START_TIME=1612317843435, UNIQ_KEY=7F00000149474DC639960C752B4C0003, CLUSTER=rocketmq-cluster, WAIT=true, TAGS=TagA}, body=[72, 101, 108, 108, 111, 32, 82, 111, 99, 107, 101, 116, 77, 81, 32, 51], transactionId='null'}]]
+ConsumeMessageThread_3 Receive New Messages: [MessageExt [brokerName=broker-b, queueId=0, storeSize=204, queueOffset=10, sysFlag=0, bornTimestamp=1612317806220, bornHost=/172.16.201.134:42326, storeTimestamp=1612317806222, storeHost=/172.30.217.70:20911, msgId=AC1ED946000051AF0000000000001712, commitLogOffset=5906, bodyCRC=1918600882, reconsumeTimes=0, preparedTransactionOffset=0, toString()=Message{topic='TopicTest', flag=0, properties={MIN_OFFSET=0, MAX_OFFSET=20, CONSUME_START_TIME=1612317843435, UNIQ_KEY=7F00000149474DC639960C752E8C0013, CLUSTER=rocketmq-cluster, WAIT=true, TAGS=TagA}, body=[72, 101, 108, 108, 111, 32, 82, 111, 99, 107, 101, 116, 77, 81, 32, 49, 57], transactionId='null'}]]
+ConsumeMessageThread_2 Receive New Messages: [MessageExt [brokerName=broker-b, queueId=0, storeSize=204, queueOffset=9, sysFlag=0, bornTimestamp=1612317805826, bornHost=/172.16.201.134:42326, storeTimestamp=1612317805828, storeHost=/172.30.217.70:20911, msgId=AC1ED946000051AF00000000000013E2, commitLogOffset=5090, bodyCRC=2088767104, reconsumeTimes=0, preparedTransactionOffset=0, toString()=Message{topic='TopicTest', flag=0, properties={MIN_OFFSET=0, MAX_OFFSET=20, CONSUME_START_TIME=1612317843435, UNIQ_KEY=7F00000149474DC639960C752D02000B, CLUSTER=rocketmq-cluster, WAIT=true, TAGS=TagA}, body=[72, 101, 108, 108, 111, 32, 82, 111, 99, 107, 101, 116, 77, 81, 32, 49, 49], transactionId='null'}]]
+ConsumeMessageThread_4 Receive New Messages: [MessageExt [brokerName=broker-b, queueId=0, storeSize=204, queueOffset=11, sysFlag=0, bornTimestamp=1612317806563, bornHost=/172.16.201.134:42326, storeTimestamp=1612317806565, storeHost=/172.30.217.70:20911, msgId=AC1ED946000051AF0000000000001A42, commitLogOffset=6722, bodyCRC=1053751414, reconsumeTimes=0, preparedTransactionOffset=0, toString()=Message{topic='TopicTest', flag=0, properties={MIN_OFFSET=0, MAX_OFFSET=20, CONSUME_START_TIME=1612317843437, UNIQ_KEY=7F00000149474DC639960C752FE3001B, CLUSTER=rocketmq-cluster, WAIT=true, TAGS=TagA}, body=[72, 101, 108, 108, 111, 32, 82, 111, 99, 107, 101, 116, 77, 81, 32, 50, 55], transactionId='null'}]]
+................
+................
+ 
+
+手动测试新增topic
+[root@broker-a-0 bin]# sh mqadmin updateTopic -c rocketmq-cluster -n mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901 -t testtopic
+RocketMQLog:WARN No appenders could be found for logger (io.netty.util.internal.PlatformDependent0).
+RocketMQLog:WARN Please initialize the logger system properly.
+create topic to 172.16.201.134:20911 success.
+create topic to 172.30.217.70:20911 success.
+TopicConfig [topicName=testtopic, readQueueNums=8, writeQueueNums=8, perm=RW-, topicFilterType=SINGLE_TAG, topicSysFlag=0, order=false]
+ 
+
+查看topic列表：
+[root@broker-a-0 bin]# sh mqadmin topicList -n mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901
+RocketMQLog:WARN No appenders could be found for logger (io.netty.util.internal.PlatformDependent0).
+RocketMQLog:WARN Please initialize the logger system properly.
+RMQ_SYS_TRANS_HALF_TOPIC
+rocketmq-cluster
+%RETRY%please_rename_unique_group_name_4
+BenchmarkTest
+OFFSET_MOVED_EVENT
+TBW102
+SELF_TEST_TOPIC
+SCHEDULE_TOPIC_XXXX
+testtopic
+rocketmq-cluster_REPLY_TOPIC
+broker-b
+TopicTest
+broker-a
+
+再次查看可视化界面
+点 Dasboard  表格数据出来了
+
+
+点Topic : testtopic 显示存在
+
+
+####7、客户端连接RockerMQ集群
+RocketMQ可以令客户端找到Name Server, 然后通过Name Server再找到Broker。如下所示有多种配置方式，优先级由高到低，高优先级会覆盖低优先级；
+代码中指定Name Server地址，多个namesrv地址之间用分号分割：
+producer.setNamesrvAddr("mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901");
+consumer.setNamesrvAddr("mq-namesrv-0.mq-namesrv.wiseco.svc.cluster.local:20901");
+　　
+
+####8、参考
+https://www.cnblogs.com/kevingrace/p/14366671.html
