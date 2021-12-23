@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq-nfs-client-provisioner
+  namespace: wiseco
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq-nfs-client-provisioner
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: rabbitmq-nfs-client-provisioner
+    spec:
+      serviceAccount: nfs-provisioner
+      containers:
+        - name: rabbitmq-nfs-client-provisioner
+          image: registry.cn-hangzhou.aliyuncs.com/open-ali/nfs-client-provisioner
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: nfs-client-root
+              mountPath:  /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              value: rabbitmq/nfs
+            - name: NFS_SERVER
+              value: 172.16.201.134
+            - name: NFS_PATH
+              value: /data/storage/k8s/rabbitmq
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server: 172.16.201.134
+            path: /data/storage/k8s/rabbitmq
