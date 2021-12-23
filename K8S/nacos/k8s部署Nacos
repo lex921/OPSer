@@ -165,3 +165,15 @@ NAME      READY   STATUS        RESTARTS   AGE   IP            NODE       NOMINA
 nacos-0   1/1     Terminating   0          30m   10.244.2.27   node-2     <none>           <none>
 nacos-1   1/1     Running       0          26m   10.244.1.36   node-1     <none>           <none>
 nacos-2   1/1     Running       0          23m   10.244.0.2    master-1   <none>           <none>
+
+
+
+单个服务测试地址：
+Service registration
+curl -X PUT 'http://cluster-ip:8848/nacos/v1/ns/instance?serviceName=nacos.naming.serviceName&ip=20.18.7.10&port=8080'
+Service discovery
+curl -X GET 'http://cluster-ip:8848/nacos/v1/ns/instances?serviceName=nacos.naming.serviceName'
+Publish config
+curl -X POST "http://cluster-ip:8848/nacos/v1/cs/configs?dataId=nacos.cfg.dataId&group=test&content=helloWorld"
+Get config
+curl -X GET "http://cluster-ip:8848/nacos/v1/cs/configs?dataId=nacos.cfg.dataId&group=test"
