@@ -1,0 +1,643 @@
+##(二十二)、k8s部署RabbitMQ
+
+RabbitMQ 简介
+以熟悉的电商场景为例，如果商品服务和订单服务是两个不同的微服务，在下单的过程中订单服务需要调用商品服务进行扣库存操作。按照传统的方式，下单过程要等到调用完毕之后才能返回下单成功，如果网络产生波动等原因使得商品服务扣库存延迟或者失败，会带来较差的用户体验，如果在高并发的场景下，这样的处理显然是不合适的，那怎么进行优化呢？这就需要消息队列登场了。
+ 
+消息队列提供一个异步通信机制，消息的发送者不必一直等待到消息被成功处理才返回，而是立即返回。消息中间件负责处理网络通信，如果网络连接不可用，消息被暂存于队列当中，当网络畅通的时候在将消息转发给相应的应用程序或者服务，当然前提是这些服务订阅了该队列。如果在商品服务和订单服务之间使用消息中间件，既可以提高并发量，又降低服务之间的耦合度。
+ 
+RabbitMQ就是这样一款我们苦苦追寻的消息队列。RabbitMQ是一个开源的消息代理的队列服务器，用来通过普通协议在完全不同的应用之间共享数据。
+ 
+RabbitMQ 的特点
+开源、性能优秀，速度快，稳定性保障提供可靠性消息投递模式、返回模式与Spring AMQP完美整合，API丰富集群模式丰富，表达式配置，HA模式，镜像队列模型保证数据不丢失的前提做到高可靠性、可用性
+ 
+RabbitMQ 典型应用场景
+异步处理：把消息放入消息中间件中，等到需要的时候再去处理。
+流量削峰：例如秒杀活动，在短时间内访问量急剧增加，使用消息队列，当消息队列满了就拒绝响应，跳转到错误页面，这样就可以使得系统不会因为超负载而崩溃。
+日志处理；（不过一般日志处理都使用Kafka这种消息队列）
+应用解耦：假设某个服务A需要给许多个服务(B、C、D)发送消息，当某个服务(例如B)不需要发送消息了，服务A需要改代码再次部署；当新加入一个服务(服务E)需要服务A的消息的时候，也需要改代码重新部署；另外服务A也要考虑其他服务挂掉，没有收到消息怎么办？要不要重新发送呢？是不是很麻烦，使用MQ发布订阅模式，服务A只生产消息发送到MQ，B、C、D从MQ中读取消息，需要A的消息就订阅，不需要了就取消订阅，服务A不再操心其他的事情，使用这种方式可以降低服务或者系统之间的耦合。
+RabbitMQ集群节点之间是如何相互认证的：
+通过Erlang Cookie，相当于共享秘钥的概念，长度任意，只要所有节点都一致即可。
+rabbitmq server在启动的时候，erlang VM会自动创建一个随机的cookie文件。cookie文件的位置是/var/lib/rabbitmq/.erlang.cookie 或者 /root/.erlang.cookie，为保证cookie的完全一致，采用从一个节点copy的方式。
+Erlang Cookie是保证不同节点可以相互通信的密钥，要保证集群中的不同节点相互通信必须共享相同的Erlang Cookie。具体的目录存放在/var/lib/rabbitmq/.erlang.cookie。
+ 
+说明：这就要从rabbitmqctl命令的工作原理说起，RabbitMQ底层是通过Erlang架构来实现的，所以rabbitmqctl会启动Erlang节点，并基于Erlang节点来使用Erlang系统连接RabbitMQ节点，在连接过程中需要正确的Erlang Cookie和节点名称，Erlang节点通过交换Erlang Cookie以获得认证。
+ 
+RabbitMQ集群模式
+
+单机模式
+普通集群模式（无高可用性）
+镜像集群模式（高可用性），最常用的集群模式。
+ 
+
+RabbitMQ集群故障处理机制：
+rabbitmq broker集群允许个体节点down机，
+对应集群的的网络分区问题（ network partitions）
+RabbitMQ集群推荐用于LAN环境，不适用WAN环境；
+要通过WAN连接broker，Shovel or Federation插件是最佳的解决方案；Shovel or Federation不同于集群。
+ 
+ 
+RabbitMQ节点类型
+RAM node：只保存状态到内存。内存节点将所有的队列、交换机、绑定、用户、权限和vhost的元数据定义存储在内存中，好处是可以使得像交换机和队列声明等操作更加的快速。
+Disk node：将元数据存储在磁盘中。单节点系统只允许磁盘类型的节点，防止重启RabbitMQ的时候，丢失系统的配置信息。
+内存节点虽然不写入磁盘，但是它执行比磁盘节点要好。RabbitMQ集群中，只需要一个磁盘节点来保存状态就足够了；如果集群中只有内存节点，那么不能停止它们，否则所有的状态，消息等都会丢失。
+ 
+问题说明：
+RabbitMQ要求在集群中至少有一个磁盘节点，所有其他节点可以是内存节点，当节点加入或者离开集群时，必须要将该变更通知到至少一个磁盘节点。
+如果集群中唯一的一个磁盘节点崩溃的话，集群仍然可以保持运行，但是无法进行其他操作（增删改查），直到节点恢复。
+解决方案：设置两个磁盘节点，至少有一个是可用的，可以保存元数据的更改。
+ 
+RabbitMQ集群的节点运行模式：
+为保证数据持久性，当前所有node节点跑在disk模式。
+如果今后压力大，需要提高性能，考虑采用ram模式。
+ 
+RabbitMQ集群记录
+本案例采用 "镜像模式"，即队列为镜像队列，队列消息存在集群的每个节点上。
+ 
+###1、版本说明
+因为考虑到较早版本rabbitmq在k8s上的集群部署是使用autocluster插件去调用kubernetes apiserver来获取rabbitmq服务的endpoints，进而获取node节点信息，并自动加入集群，但是现在autocluster已不再更新了，并且只支持3.6.x版本，故而放弃这种方式。
+ 
+对于3.7.x或更新的版本，现在市场主流是使用 peer discovery subsystem来构建rabbitmq-cluster，参考这里。
+
+###2、部署方式
+在Kubernetes上搭建RabbitMQ有4种部署方法（IP模式、Pod与Server的DNS模式、Statefulset 与Headless Service模式、hostname模式），这里选择StatefulSet与Headless Service模式部署有状态的RabbitMQ集群。
+ 
+###3、使用NFS配置StatefulSet的动态持久化存储
+#####1）在NFS服务器端（172.16.60.238）通过nfs创建RabbitMQ集群的共享目录
+[root@master-1 rocketmq]# mkdir -p /data/storage/k8s/rabbitmq
+[root@master-1 rocketmq]# echo '/data/storage/k8s/rabbitmq *(rw,no_root_squash)' >> /etc/exports
+[root@master-1 rocketmq]# exportfs -r
+[root@master-1 rabbitmq]# exportfs 
+/data/storage/k8s/rocketmq
+                <world>
+/data/storage/k8s/rabbitmq
+                <world>
+[root@master-1 rabbitmq]# showmount -e 172.16.201.134
+Export list for 172.16.201.134:
+/data/storage/k8s/rabbitmq *
+/data/storage/k8s/rocketmq *
+
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/data/storage/k8s/rabbitmq /data/storage/k8s/rabbitmq
+[root@node-2 ~]# mount -t nfs 172.16.201.134:/data/storage/k8s/rabbitmq /data/storage/k8s/rabbitmq
+
+[root@node-1 ~]#  df -h|grep 134
+172.16.201.134:/data/storage/k8s/rabbitmq  100G  4.2G   96G   5% /data/storage/k8s/rabbitmq
+
+[root@node-2 ~]# df -h|grep 134
+172.16.201.134:/data/storage/k8s/rabbitmq  100G  4.2G   96G   5% /data/storage/k8s/rabbitmq     
+
+
+
+#####2）创建nfs的rbac
+[root@master-1 activemq]# kubectl create namespace wiseco
+namespace/wiseco created
+
+
+
+
+[root@k8s-master01 rocketmq]# vim nfs-rbac.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfs-provisioner
+  namespace: wiseco
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+   name: nfs-provisioner-runner
+   namespace: wiseco
+rules:
+   -  apiGroups: [""]
+      resources: ["persistentvolumes"]
+      verbs: ["get", "list", "watch", "create", "delete"]
+   -  apiGroups: [""]
+      resources: ["persistentvolumeclaims"]
+      verbs: ["get", "list", "watch", "update"]
+   -  apiGroups: ["storage.k8s.io"]
+      resources: ["storageclasses"]
+      verbs: ["get", "list", "watch"]
+   -  apiGroups: [""]
+      resources: ["events"]
+      verbs: ["watch", "create", "update", "patch"]
+   -  apiGroups: [""]
+      resources: ["services", "endpoints"]
+      verbs: ["get","create","list", "watch","update"]
+   -  apiGroups: ["extensions"]
+      resources: ["podsecuritypolicies"]
+      resourceNames: ["nfs-provisioner"]
+      verbs: ["use"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: run-nfs-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: nfs-provisioner
+    namespace: wiseco
+roleRef:
+  kind: ClusterRole
+  name: nfs-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+
+[root@master-1 rocketmq]# kubectl apply -f nfs-rbac.yaml
+serviceaccount/nfs-provisioner created
+clusterrole.rbac.authorization.k8s.io/nfs-provisioner-runner created
+clusterrolebinding.rbac.authorization.k8s.io/run-nfs-provisioner created
+
+
+[root@master-1 rocketmq]# kubectl get sa -n wiseco|grep nfs
+nfs-provisioner   1         10s
+[root@master-1 rocketmq]# kubectl get clusterrole -n wiseco|grep nfs
+nfs-provisioner-runner                                                 2021-12-21T10:25:32Z
+[root@master-1 rocketmq]# kubectl get clusterrolebinding -n wiseco|grep nfs
+run-nfs-provisioner                                    ClusterRole/nfs-provisioner-runner                                                 18s
+[root@master-1 rocketmq]# 
+
+
+#####3）创建RabbitMQ集群的storageclass
+
+[root@master-1 rocketmq]# vim rabbitmq-nfs-class.yaml
+apiVersion: storage.k8s.io/v1beta1
+kind: StorageClass
+metadata:
+  name: rabbitmq-nfs-storage
+  namespace: wiseco
+provisioner: rabbitmq/nfs
+reclaimPolicy: Retain
+
+
+[root@master-1 rabbitmq]# kubectl apply -f rabbitmq-nfs-class.yaml
+storageclass.storage.k8s.io/rabbitmq-nfs-storage created
+
+[root@master-1 rabbitmq]#  kubectl get sc
+NAME                   PROVISIONER    RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+rabbitmq-nfs-storage   rabbitmq/nfs   Retain          Immediate           false                  14m
+rocketmq-nfs-storage   rocketmq/nfs   Retain          Immediate           false                  28h
+[root@master-1 rabbitmq]# 
+
+
+#####4）创建MongoDB集群的nfs-client-provisioner
+PROVISIONER_NAME的值一定要和StorageClass中的provisioner相等。
+
+
+[root@master-1 rabbitmq]# vim rabbitmq-nfs.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq-nfs-client-provisioner
+  namespace: wiseco
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq-nfs-client-provisioner
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: rabbitmq-nfs-client-provisioner
+    spec:
+      serviceAccount: nfs-provisioner
+      containers:
+        - name: rabbitmq-nfs-client-provisioner
+          image: registry.cn-hangzhou.aliyuncs.com/open-ali/nfs-client-provisioner
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: nfs-client-root
+              mountPath:  /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              value: rabbitmq/nfs
+            - name: NFS_SERVER
+              value: 172.16.201.134
+            - name: NFS_PATH
+              value: /data/storage/k8s/rabbitmq
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server: 172.16.201.134
+            path: /data/storage/k8s/rabbitmq
+
+[root@master-1 rabbitmq]# kubectl apply -f rabbitmq-nfs.yml
+deployment.apps/rabbitmq-nfs-client-provisioner created
+
+[root@master-1 rabbitmq]# kubectl get pods -n wiseco
+NAME                                               READY   STATUS    RESTARTS   AGE
+rabbitmq-nfs-client-provisioner-5b9bb74974-fqd66   1/1     Running   0          23s
+rocketmq-nfs-client-provisioner-5bc9679c86-gsqws   1/1     Running   1          29h
+[root@master-1 rabbitmq]# 
+
+
+###4、部署RabbitMQ基于镜像模式的集群
+[root@k8s-master01 rabbitmq]# ll
+total 12
+-rw-r--r-- 1 root root 1216 Feb  7 17:33 nfs-rbac.yaml
+-rw-r--r-- 1 root root  161 Feb  7 17:37 rabbitmq-nfs-class.yaml
+-rw-r--r-- 1 root root 1027 Feb  7 17:46 rabbitmq-nfs.yml
+[root@k8s-master01 rabbitmq]# mkdir deployment
+[root@k8s-master01 rabbitmq]# cd deployment
+[root@k8s-master01 deployment]#
+
+
+采用StatefulSet与Headless Service模式部署有状态的RabbitMQ集群。
+rabbitmq.yml文件内容：
+
+[root@master-1 deployment]# vim rabbitmq.yml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-management
+  namespace: wiseco
+  labels:
+    app: rabbitmq
+spec:
+  ports:
+  - port: 15672
+    name: http
+  selector:
+    app: rabbitmq
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: wiseco
+  labels:
+    app: rabbitmq
+spec:
+  ports:
+  - port: 5672
+    name: amqp
+  - port: 4369
+    name: epmd
+  - port: 25672
+    name: rabbitmq-dist
+  clusterIP: None
+  selector:
+    app: rabbitmq
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  namespace: wiseco
+  name: rabbitmq
+spec:
+  serviceName: "rabbitmq"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - rabbitmq
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: rabbitmq
+        image: rabbitmq
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - >
+                if [ -z "$(grep rabbitmq /etc/resolv.conf)" ]; then
+                  sed "s/^search \([^ ]\+\)/search rabbitmq.\1 \1/" /etc/resolv.conf > /etc/resolv.conf.new;
+                  cat /etc/resolv.conf.new > /etc/resolv.conf;
+                  rm /etc/resolv.conf.new;
+                fi;
+                until rabbitmqctl node_health_check; do sleep 1; done;
+                if [ -z "$(rabbitmqctl cluster_status | grep rabbitmq-0)" ]; then
+                  touch /gotit
+                  rabbitmqctl stop_app;
+                  rabbitmqctl reset;
+                  rabbitmqctl join_cluster rabbit@rabbitmq-0;
+                  rabbitmqctl start_app;
+                else
+                  touch /notget
+                fi;
+        env:
+        - name: MY_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: RABBITMQ_ERLANG_COOKIE
+          value: "YZSDHWMFSMKEMBDHSGGZ"
+        - name: RABBITMQ_NODENAME
+          value: "rabbit@$(MY_POD_NAME)"
+        ports:
+        - name: http
+          protocol: TCP
+          containerPort: 15672
+        - name: amqp
+          protocol: TCP
+          containerPort: 5672
+        livenessProbe:
+          tcpSocket:
+            port: amqp
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: amqp
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+          periodSeconds: 20
+        volumeMounts:
+        - name: rabbitmq-data
+          mountPath: /var/lib/rabbitmq
+  volumeClaimTemplates:
+  - metadata:
+      name: rabbitmq-data
+      annotations:
+        volume.beta.kubernetes.io/storage-class: "rabbitmq-nfs-storage"
+    spec:
+      accessModes:
+        - ReadWriteMany
+      resources:
+        requests:
+          storage: 10Gi
+
+
+[root@master-1 deployment]# kubectl apply -f rabbitmq.yml
+service/rabbitmq-management created
+service/rabbitmq created
+statefulset.apps/rabbitmq created
+
+[root@master-1 deployment]# kubectl get pods -n wiseco -o wide|grep rabbitmq
+rabbitmq-0                                        1/1     Running   0          11m     172.30.85.206    k8s-node01   <none>           <none>
+rabbitmq-1                                        1/1     Running   0          9m9s    172.30.217.69    k8s-node04   <none>           <none>
+rabbitmq-2                                        1/1     Running   0          7m59s   172.30.135.145   k8s-node03   <none>           <none>
+rabbitmq-nfs-client-provisioner-c4f95d479-xvm8r   1/1     Running   0          20h     172.30.217.122   k8s-node04   <none>           <none>
+ 
+
+
+[root@master-1 ~]# kubectl get svc -n wiseco|grep rabbitmq
+rabbitmq              ClusterIP   None         <none>        5672/TCP,4369/TCP,25672/TCP   62s
+rabbitmq-management   NodePort    10.1.170.1   <none>        15672:32336/TCP               63s
+
+
+kubectl apply -f rabbitmq.yml
+kubectl delete -f rabbitmq.yml
+
+kubectl delete -f 
+kubectl apply -f
+kubectl  describe pod  -n wiseco rabbitmq-0
+
+
+kubectl get event -n wiseco
+kubectl logs -f rabbitmq-0 -n wiseco
+
+kubectl delete pvc rabbitmq-data-rabbitmq-0 -n wiseco
+kubectl delete pvc rabbitmq-data-rabbitmq-1 -n wiseco
+
+####5、验证RabbitMQ集群
+
+登录rabbitmq-0容器查看集群状态
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-0 -n wiseco -- rabbitmqctl cluster_status
+Cluster status of node rabbit@rabbitmq-0 ...
+[{nodes,[{disc,['rabbit@rabbitmq-0','rabbit@rabbitmq-1',
+                'rabbit@rabbitmq-2']}]},
+ {running_nodes,['rabbit@rabbitmq-2','rabbit@rabbitmq-1','rabbit@rabbitmq-0']},
+ {cluster_name,<<"rabbit@rabbitmq-0.rabbitmq.wiseco.svc.cluster.local">>},
+ {partitions,[]},
+ {alarms,[{'rabbit@rabbitmq-2',[]},
+          {'rabbit@rabbitmq-1',[]},
+          {'rabbit@rabbitmq-0',[]}]}]
+ 
+ 
+登录rabbitmq-1容器查看集群状态
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-1 -n wiseco -- rabbitmqctl cluster_status
+Cluster status of node rabbit@rabbitmq-1 ...
+[{nodes,[{disc,['rabbit@rabbitmq-0','rabbit@rabbitmq-1',
+                'rabbit@rabbitmq-2']}]},
+ {running_nodes,['rabbit@rabbitmq-2','rabbit@rabbitmq-0','rabbit@rabbitmq-1']},
+ {cluster_name,<<"rabbit@rabbitmq-0.rabbitmq.wiseco.svc.cluster.local">>},
+ {partitions,[]},
+ {alarms,[{'rabbit@rabbitmq-2',[]},
+          {'rabbit@rabbitmq-0',[]},
+          {'rabbit@rabbitmq-1',[]}]}]
+ 
+ 
+登录rabbitmq-2容器查看集群状态
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-2 -n wiseco -- rabbitmqctl cluster_status
+Cluster status of node rabbit@rabbitmq-2 ...
+[{nodes,[{disc,['rabbit@rabbitmq-0','rabbit@rabbitmq-1',
+                'rabbit@rabbitmq-2']}]},
+ {running_nodes,['rabbit@rabbitmq-0','rabbit@rabbitmq-1','rabbit@rabbitmq-2']},
+ {cluster_name,<<"rabbit@rabbitmq-0.rabbitmq.wiseco.svc.cluster.local">>},
+ {partitions,[]},
+ {alarms,[{'rabbit@rabbitmq-0',[]},
+          {'rabbit@rabbitmq-1',[]},
+          {'rabbit@rabbitmq-2',[]}]}]　
+
+
+###6、访问RabbitMQ的Web界面，查看集群状态
+[root@master-1 deployment]# kubectl get svc -n wiseco|grep rabbitmq
+rabbitmq              ClusterIP   None             <none>        5672/TCP,4369/TCP,25672/TCP   23m
+rabbitmq-management   NodePort    10.254.128.136   <none>        15672:32513/TCP               23m
+
+
+通过K8S的node节点的32513访问web页面，用户名和密码都是guest
+http://172.16.201.134:32513
+
+
+###7、RabbitMQ的日常操作命令
+1）用户管理
+=====================================================================================================
+新增一个用户
+rabbitmqctl add_user Username Password
+ 
+删除一个用户
+rabbitmqctl delete_user Username
+ 
+修改用户的密码
+rabbitmqctl change_password Username Newpassword
+ 
+查看当前用户列表
+rabbitmqctl list_users
+ 
+比如：修改guest用户密码、新增或删除一个用户
+查看当前用户列表
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-0 -n wiseco -- rabbitmqctl list_users
+Listing users ...
+user    tags
+guest   [administrator]
+ 
+修改guest用户密码为 guest@123
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-0 -n wiseco -- rabbitmqctl change_password guest guest@123
+Changing password for user "guest" ..
+ 
+新增一个用户，用户名为kevin，密码为 kevin@123
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-0 -n wiseco -- rabbitmqctl add_user kevin kevin@123
+Adding user "kevin" ...
+ 
+查看当前用户列表
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-0 -n wiseco -- rabbitmqctl list_users
+Listing users ...
+user    tags
+guest   [administrator]
+kevin   []
+ 
+设置kevin用户角色为administrator
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-0 -n wiseco -- rabbitmqctl set_user_tags kevin administrator
+Setting tags for user "kevin" to [administrator] ...
+ 
+查看当前用户列表
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-0 -n wiseco -- rabbitmqctl list_users
+Listing users ...
+user    tags
+guest   [administrator]
+kevin   [administrator]
+ 
+修改kevin用户角色为monitoring、policymaker
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-0 -n wiseco -- rabbitmqctl set_user_tags kevin monitoring policymaker
+Setting tags for user "kevin" to [monitoring, policymaker] ...
+ 
+查看当前用户列表
+[root@master-1 deployment]#  kubectl exec -ti rabbitmq-0 -n wiseco -- rabbitmqctl list_users
+Listing users ...
+user    tags
+guest   [administrator]
+kevin   [monitoring, policymaker]
+ 
+删除kevin用户
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-0 -n wiseco -- rabbitmqctl delete_user kevin
+Deleting user "kevin" ...
+ 
+查看当前用户列表
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-0 -n wiseco -- rabbitmqctl list_users
+Listing users ...
+user    tags
+guest   [administrator]
+ 
+ 
+ 
+2）用户角色
+=====================================================================================================
+用户角色分类
+用户角色可分为五类：超级管理员、监控者、策略制定者、普通管理者以及其他。
+超级管理员 (administrator)
+可登陆管理控制台(启用management plugin的情况下)，可查看所有的信息，并且可以对用户，策略(policy)进行操作。
+监控者 (monitoring)
+可登陆管理控制台(启用management plugin的情况下)，同时可以查看rabbitmq节点的相关信息(进程数，内存使用情况，磁盘使用情况等)
+策略制定者 (policymaker)
+可登陆管理控制台(启用management plugin的情况下), 同时可以对policy进行管理。但无法查看节点的相关信息
+普通管理者 (management)
+仅可登陆管理控制台(启用management plugin的情况下)，无法看到节点信息，也无法对策略进行管理。
+其他
+无法登陆管理控制台，通常就是普通的生产者和消费者。
+ 
+相关操作命令：
+设置用户角色的命令为：
+rabbitmqctl set_user_tags User Tag
+ 
+其中：
+User为用户名
+Tag为角色名 (对应于上面的administrator，monitoring，policymaker，management，或其他自定义名称)。
+ 
+也可以给同一用户设置多个角色，例如：
+rabbitmqctl set_user_tags kevin monitoring policymaker
+ 
+ 
+ 
+3）用户权限
+=====================================================================================================
+用户权限指的是用户对exchange，queue的操作权限，包括配置权限，读写权限。
+配置权限会影响到exchange，queue的声明和删除。
+读写权限影响到从queue里取消息，向exchange发送消息以及queue和exchange的绑定(bind)操作。
+ 
+例如：
+ 将queue绑定到某exchange上，需要具有queue的可写权限，以及exchange的可读权限；
+向exchange发送消息需要具有exchange的可写权限；
+从queue里取数据需要具有queue的可读权限。
+ 
+相关操作命令：
+设置用户权限
+rabbitmqctl set_permissions -p VHostPath User ConfP WriteP ReadP
+ 
+查看(指定hostpath)所有用户的权限信息
+rabbitmqctl list_permissions [-p VHostPath]
+ 
+查看指定用户的权限信息
+rabbitmqctl list_user_permissions User
+ 
+清除用户的权限信息
+rabbitmqctl clear_permissions [-p VHostPath] User
+ 
+设置节点类型
+RabbitMQ节点类型分为内存节点和硬盘节点。
+如果你想更换节点类型可以通过命令修改：
+rabbitmqctl stop_app
+rabbitmqctl change_cluster_node_type dist
+rabbitmqctl change_cluster_node_type ram
+rabbitmqctl start_app
+
+###8、模拟RabbitMQ节点故障
+模拟故障，重启其中的一个node节点，比如rabbitmq-0，然后观察集群状态：
+[root@master-1 deployment]#kubectl get pods -n wiseco -o wide|grep rabbitmq
+rabbitmq-0                                        1/1     Running   0          71m   172.30.85.206    k8s-node01   <none>           <none>
+rabbitmq-1                                        1/1     Running   0          68m   172.30.217.69    k8s-node04   <none>           <none>
+rabbitmq-2                                        1/1     Running   0          67m   172.30.135.145   k8s-node03   <none>           <none>
+rabbitmq-nfs-client-provisioner-c4f95d479-xvm8r   1/1     Running   0          21h   172.30.217.122   k8s-node04   <none>           <none>
+ 
+删除rabbitmq-0节点
+[root@master-1 deployment]#kubectl delete pods rabbitmq-0 -n wiseco
+pod "rabbitmq-0" deleted
+ 
+查看pod，发现rabbitmq-0节点删除后，重启需要耗费一段时间
+[root@master-1 deployment]#kubectl get pods -n wiseco -o wide|grep rabbitmq
+rabbitmq-0                                        0/1     ContainerCreating   0          44s   <none>           k8s-node01   <none>           <none>
+rabbitmq-1                                        1/1     Running             0          70m   172.30.217.69    k8s-node04   <none>           <none>
+rabbitmq-2                                        1/1     Running             0          69m   172.30.135.145   k8s-node03   <none>           <none>
+rabbitmq-nfs-client-provisioner-c4f95d479-xvm8r   1/1     Running             0          21h   172.30.217.122   k8s-node04   <none>           <none>
+ 
+此时，查看RabbitMQ集群状态
+发现此时，rabbit@rabbitmq-0节点还没有恢复，running的node节点只有rabbit@rabbitmq-2、rabbit@rabbitmq-1
+[root@master-1 deployment]# kubectl exec -ti rabbitmq-1 -n wiseco -- rabbitmqctl cluster_status
+Cluster status of node rabbit@rabbitmq-1 ...
+[{nodes,[{disc,['rabbit@rabbitmq-0','rabbit@rabbitmq-1',
+                'rabbit@rabbitmq-2']}]},
+ {running_nodes,['rabbit@rabbitmq-2','rabbit@rabbitmq-1']},
+ {cluster_name,<<"rabbit@rabbitmq-0.rabbitmq.wiseco.svc.cluster.local">>},
+ {partitions,[]},
+ {alarms,[{'rabbit@rabbitmq-2',[]},{'rabbit@rabbitmq-1',[]}]}]
+　　
+此时，查看web界面的集群状态，先后经历了下面三个状态：
+红色表示 节点故障。
+黄色表示 节点恢复中，暂不可用。
+绿色表示 点运行正常。
+
+
+####9、客户端访问RabbitMQ集群地址
+客户端连接RabbitMQ集群地址：
+rabbitmq-0.rabbitmq.wiseco.svc.cluster.local:5672
+rabbitmq-0.rabbitmq.wiseco.svc.cluster.local:5672
+rabbitmq-0.rabbitmq.wiseco.svc.cluster.local:5672
+
+连接方式：
+客户端可以连接RabbitMQ集群中的任意一个节点。如果一个节点故障，客户端自行重新连接到其他的可用节点；
+也就是说，RabbitMQ集群有"重连"机制，但是这种集群连接方式对客户端不透明，不太建议这种连接方式。
+推荐方式：给客户端提供一个统一的透明的集群连接地址
+做法：在前面部署LVS或Haproxy，通过四层负载均衡代理后RabbitMQ的三个node节点的5672端口。
+
+
+参考
+https://www.cnblogs.com/kevingrace/p/14412360.html
