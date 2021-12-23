@@ -639,5 +639,5 @@ rabbitmq-0.rabbitmq.wiseco.svc.cluster.local:5672
 做法：在前面部署LVS或Haproxy，通过四层负载均衡代理后RabbitMQ的三个node节点的5672端口。
 
 
-参考
+####10、参考
 https://www.cnblogs.com/kevingrace/p/14412360.html
