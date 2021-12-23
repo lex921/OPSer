@@ -1,0 +1,167 @@
+##(二十三)、k8s部署Nacos
+
+
+一、什么是Nacos
+英文全称Dynamic Naming and Configuration Service，Na为naming/nameServer即注册中心,co为configuration即注册中心，service是指该注册/配置中心都是以服务为核心。服务在nacos是一等公民
+
+二、Nacos原理
+Nacos注册中心分为server与client，server采用Java编写，为client提供注册发现服务与配置服务。而client可以用多语言实现，client与微服务嵌套在一起，nacos提供sdk和openApi，如果没有sdk也可以根据openApi手动写服务注册与发现和配置拉取的逻辑
+
+Nacos服务领域模型主要分为命名空间、集群、服务。在下图的分级存储模型可以看到，在服务级别，保存了健康检查开关、元数据、路由机制、保护阈值等设置，而集群保存了健康检查模式、元数据、同步机制等数据，实例保存了该实例的ip、端口、权重、健康检查状态、下线状态、元数据、响应时间。
+
+服务注册方法：以Java nacos client v1.0.1 为例子，服务注册的策略的是每5秒向nacos server发送一次心跳，心跳带上了服务名，服务ip，服务端口等信息。同时 nacos server也会向client 主动发起健康检查，支持tcp/http检查。如果15秒内无心跳且健康检查失败则认为实例不健康，如果30秒内健康检查失败则剔除实例。
+
+
+三、Nacos 的关键特性包括:
+
+服务发现和服务健康监测
+Nacos 支持基于 DNS 和基于 RPC 的服务发现。服务提供者使用 原生SDK、OpenAPI、或一个独立的Agent TODO注册 Service 后，服务消费者可以使用DNS TODO 或HTTP&API查找和发现服务。
+Nacos 提供对服务的实时的健康检查，阻止向不健康的主机或服务实例发送请求。Nacos 支持传输层 (PING 或 TCP)和应用层 (如 HTTP、MySQL、用户自定义）的健康检查。 对于复杂的云环境和网络拓扑环境中（如 VPC、边缘网络等）服务的健康检查，Nacos 提供了 agent 上报模式和服务端主动检测2种健康检查模式。Nacos 还提供了统一的健康检查仪表盘，帮助您根据健康状态管理服务的可用性及流量。
+
+动态配置服务
+动态配置服务可以让您以中心化、外部化和动态化的方式管理所有环境的应用配置和服务配置。
+动态配置消除了配置变更时重新部署应用和服务的需要，让配置管理变得更加高效和敏捷。
+配置中心化管理让实现无状态服务变得更简单，让服务按需弹性扩展变得更容易。
+Nacos 提供了一个简洁易用的UI (控制台样例 Demo) 帮助您管理所有的服务和应用的配置。Nacos 还提供包括配置版本跟踪、金丝雀发布、一键回滚配置以及客户端配置更新状态跟踪在内的一系列开箱即用的配置管理特性，帮助您更安全地在生产环境中管理配置变更和降低配置变更带来的风险。
+
+动态 DNS 服务
+动态 DNS 服务支持权重路由，让您更容易地实现中间层负载均衡、更灵活的路由策略、流量控制以及数据中心内网的简单DNS解析服务。动态DNS服务还能让您更容易地实现以 DNS 协议为基础的服务发现，以帮助您消除耦合到厂商私有服务发现 API 上的风险。
+Nacos 提供了一些简单的 DNS APIs TODO 帮助您管理服务的关联域名和可用的 IP:PORT 列表.
+
+服务及其元数据管理
+Nacos能让您从微服务平台建设的视角管理数据中心的所有服务及元数据，包括管理服务的描述、生命周期、服务的静态依赖分析、服务的健康状态、服务的流量管理、路由及安全策略、服务的 SLA 以及最首要的 metrics 统计数据。
+
+
+Nacos支持三种部署模式
+单机模式 - 用于测试和单机试用。
+集群模式 - 用于生产环境，确保高可用。
+多集群模式 - 用于多数据中心场景。
+
+官网：
+https://nacos.io/zh-cn/docs/use-nacos-with-kubernetes.html
+
+
+[root@master-1 nacos-k8s]# mkdir /data/nfs-share
+[root@master-1 nacos-k8s]# echo '/data/nfs-share *(rw,no_root_squash)' >> /etc/exports
+[root@master-1 nacos-k8s]# echo '/data/mysql *(rw,no_root_squash)' >> /etc/exports                       
+[root@master-1 nacos-k8s]# exportfs -r;exportfs;showmount -e 172.16.201.134
+/data/storage/k8s/rocketmq
+                <world>
+/data/storage/k8s/rabbitmq
+                <world>
+/data/nfs-share
+                <world>
+Export list for 172.16.201.134:
+/data/nfs-share            *
+/data/storage/k8s/rabbitmq *
+/data/storage/k8s/rocketmq *
+[root@master-1 nacos-k8s]# 
+
+
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/data/nfs-share /data/nfs-share
+[root@node-1 ~]# mount -t nfs 172.16.201.134:/data/mysql /data/mysql
+
+[root@node-1 ~]# df -h|grep 134
+172.16.201.134:/data/storage/k8s/rabbitmq  100G  8.2G   92G   9% /data/storage/k8s/rabbitmq
+172.16.201.134:/data/nfs-share             100G  8.2G   92G   9% /data/nfs-share
+172.16.201.134:/data/mysql                 100G  8.2G   92G   9% /data/mysql
+
+
+
+
+[root@master-1 nacos-k8s]# kubectl create -f deploy/nfs/rbac.yaml
+clusterrole.rbac.authorization.k8s.io/nfs-client-provisioner-runner created
+clusterrolebinding.rbac.authorization.k8s.io/run-nfs-client-provisioner created
+role.rbac.authorization.k8s.io/leader-locking-nfs-client-provisioner created
+rolebinding.rbac.authorization.k8s.io/leader-locking-nfs-client-provisioner created
+
+
+[root@master-1 nacos-k8s]# kubectl get ClusterRole|grep nfs-client-provisioner-runner
+nfs-client-provisioner-runner                                          2021-12-22T23:56:07Z
+
+[root@master-1 nacos-k8s]# kubectl create -f deploy/nfs/class.yaml
+storageclass.storage.k8s.io/managed-nfs-storage created
+
+[root@master-1 nacos-k8s]# kubectl get sc
+NAME                   PROVISIONER      RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+managed-nfs-storage    fuseim.pri/ifs   Delete          Immediate           false                  19s
+rabbitmq-nfs-storage   rabbitmq/nfs     Retain          Immediate           false                  143m
+rocketmq-nfs-storage   rocketmq/nfs     Retain          Immediate           false                  31h
+
+注意修改ip、数据目录
+[root@master-1 nacos-k8s]# kubectl create -f deploy/nfs/deployment.yaml
+serviceaccount/nfs-client-provisioner created
+deployment.apps/nfs-client-provisioner created
+
+[root@master-1 nacos-k8s]# kubectl get pod -l app=nfs-client-provisioner --watch
+NAME                                      READY   STATUS    RESTARTS   AGE
+nfs-client-provisioner-7585ccfffd-b7knw   1/1     Running   0          22s
+
+注意修改ip、数据目录
+[root@master-1 nacos-k8s]# kubectl create -f deploy/mysql/mysql-nfs.yaml
+replicationcontroller/mysql created
+service/mysql created
+
+root@master-1 nacos-k8s]# kubectl get pod  -o wide --watch
+NAME                                      READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+activemq-deployment-68b8596b6b-m4x2c      1/1     Running   0          17h     10.244.1.31   node-1   <none>           <none>
+mysql-9xvbk                               1/1     Running   0          62s     10.244.1.35   node-1   <none>           <none>
+nfs-client-provisioner-7585ccfffd-b7knw   1/1     Running   0          9m15s   10.244.2.26   node-2   <none>           <none>
+nginx-6799fc88d8-62ps5                    1/1     Running   0          17h     10.244.1.32   node-1   <none>           <none>
+
+
+
+[root@master-1 nacos-k8s]# kubectl create -f deploy/nacos/nacos-pvc-nfs.yaml
+service/nacos-headless created
+configmap/nacos-cm created
+statefulset.apps/nacos created
+
+[root@master-1 nacos-k8s]# kubectl get pod -l app=nacos -o wide  --watch
+NAME      READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+nacos-0   1/1     Running   0          8m12s   10.244.2.27   node-2   <none>           <none>
+nacos-1   1/1     Running   0          4m37s   10.244.1.36   node-1   <none>           <none>
+nacos-2   0/1     Running   0          68s     <none>        <none>   <none>           <none>
+
+[root@master-1 ~]# kubectl get pod -l app=nacos -o wide  
+NAME      READY   STATUS    RESTARTS   AGE   IP            NODE       NOMINATED NODE   READINESS GATES
+nacos-0   1/1     Running   0          25m   10.244.2.27   node-2     <none>           <none>
+nacos-1   1/1     Running   0          22m   10.244.1.36   node-1     <none>           <none>
+nacos-2   1/1     Running   0          18m   10.244.0.2    master-1   <none>           <none>
+[root@master-1 ~]# 
+
+
+[root@master-1 nacos-k8s]# for i in 0 1 2; do echo nacos-$i; kubectl exec nacos-$i cat conf/cluster.conf; done
+nacos-0
+nacos-0.nacos-headless.default.svc.cluster.local:8848
+nacos-1.nacos-headless.default.svc.cluster.local:8848
+nacos-2.nacos-headless.default.svc.cluster.local:8848
+
+nacos-1
+nacos-0.nacos-headless.default.svc.cluster.local:8848
+nacos-1.nacos-headless.default.svc.cluster.local:8848
+nacos-2.nacos-headless.default.svc.cluster.local:8848
+
+nacos-2
+nacos-0.nacos-headless.default.svc.cluster.local:8848
+nacos-1.nacos-headless.default.svc.cluster.local:8848
+nacos-2.nacos-headless.default.svc.cluster.local:8848
+
+
+[root@master-1 ~]# kubectl exec nacos-1 curl GET "http://localhost:8848/nacos/v1/ns/raft/state" 
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0curl: (6) Could not resolve host: GET; Unknown error
+{"services":0,"peers":[{"ip":"nacos-0.nacos-headless.default.svc.cluster.local:8848","term":0,"leaderDueMs":10108,"heartbeatDueMs":2518,"state":"FOLLOWER"},{"ip":"nacos-1.nacos-headless.default.svc.cluster.local:8848","term":-1,"leaderDueMs":4100   422    0   422    0     0  16127      0 --:--:-- --:--:-- --:--:-- 16127fault.svc.cluster.local:8848","term":0,"leaderDueMs":3057,"heartbeatDueMs":3198,"state":"FOLLOWER"}]}
+[root@master-1 ~]# 
+
+
+
+[root@master-1 ~]# kubectl scale sts nacos --replicas=2
+statefulset.apps/nacos scaled
+
+[root@master-1 ~]# kubectl get pod -l app=nacos -o wide  --watch
+NAME      READY   STATUS        RESTARTS   AGE   IP            NODE       NOMINATED NODE   READINESS GATES
+nacos-0   1/1     Terminating   0          30m   10.244.2.27   node-2     <none>           <none>
+nacos-1   1/1     Running       0          26m   10.244.1.36   node-1     <none>           <none>
+nacos-2   1/1     Running       0          23m   10.244.0.2    master-1   <none>           <none>
