@@ -67,8 +67,6 @@ Export list for 172.16.201.134:
 172.16.201.134:/data/mysql                 100G  8.2G   92G   9% /data/mysql
 
 
-
-
 [root@master-1 nacos-k8s]# kubectl create -f deploy/nfs/rbac.yaml
 clusterrole.rbac.authorization.k8s.io/nfs-client-provisioner-runner created
 clusterrolebinding.rbac.authorization.k8s.io/run-nfs-client-provisioner created
@@ -168,7 +166,7 @@ nacos-2   1/1     Running       0          23m   10.244.0.2    master-1   <none>
 
 
 
-单个服务测试地址：
+单个服务部署后，测试地址：
 Service registration
 curl -X PUT 'http://cluster-ip:8848/nacos/v1/ns/instance?serviceName=nacos.naming.serviceName&ip=20.18.7.10&port=8080'
 Service discovery
