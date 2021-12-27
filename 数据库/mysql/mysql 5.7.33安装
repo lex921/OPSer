@@ -1,0 +1,157 @@
+mysql 5.7.33安装
+
+下载
+wget -i -c http://dev.mysql.com/get/mysql-community-common-5.7.33-1.el7.x86_64.rpm
+wget -i -c http://dev.mysql.com/get/mysql-community-libs-5.7.33-1.el7.x86_64.rpm
+wget -i -c http://dev.mysql.com/get/mysql-community-client-5.7.33-1.el7.x86_64.rpm
+wget -i -c http://dev.mysql.com/get/mysql-community-server-5.7.33-1.el7.x86_64.rpm
+安装
+yum -y localinstall my*.rpm
+或：
+yum -y install mysql-community-common-5.7.33-1.el7.x86_64.rpm
+yum -y install mysql-community-libs-5.7.33-1.el7.x86_64.rpm
+yum -y install mysql-community-client-5.7.33-1.el7.x86_64.rpm
+yum -y install mysql-community-server-5.7.33-1.el7.x86_64.rpm
+
+
+rpm -qa|grep mysql
+mysql-community-common-5.7.33-1.el7.x86_64
+mysql-community-server-5.7.33-1.el7.x86_64
+mysql-community-libs-5.7.33-1.el7.x86_64
+mysql-community-client-5.7.33-1.el7.x86_64
+
+
+
+systemctl stop mysqld.service
+systemctl start mysqld.service
+systemctl status mysqld.service
+
+● mysqld.service - MySQL Server
+   Loaded: loaded (/usr/lib/systemd/system/mysqld.service; enabled; vendor preset: disabled)
+   Active: active (running) since Mon 2021-12-27 10:36:51 CST; 1s ago
+     Docs: man:mysqld(8)
+           http://dev.mysql.com/doc/refman/en/using-systemd.html
+  Process: 26803 ExecStart=/usr/sbin/mysqld --daemonize --pid-file=/var/run/mysqld/mysqld.pid $MYSQLD_OPTS (code=exited, status=0/SUCCESS)
+  Process: 26753 ExecStartPre=/usr/bin/mysqld_pre_systemd (code=exited, status=0/SUCCESS)
+ Main PID: 26806 (mysqld)
+   CGroup: /system.slice/mysqld.service
+           └─26806 /usr/sbin/mysqld --daemonize --pid-file=/var/run/mysqld/mysqld.pid
+
+Dec 27 10:36:46 puikiu systemd[1]: Starting MySQL Server...
+Dec 27 10:36:51 puikiu systemd[1]: Started MySQL Server.
+
+
+
+
+查看mysqld日志并用初始化密码登录——root@localhost:系统会自动默认匹配初始化密码
+#grep "password" /home/data/mysql/mysqld.log
+2021-12-27T02:36:48.852725Z 1 [Note] A temporary password is generated for root@localhost: _g#86;pLoNr*
+2021-12-27T02:37:05.602958Z 2 [Note] Access denied for user 'root'@'localhost' (using password: NO)
+
+
+mysql -u root -p
+Enter password: _g#86;pLoNr*
+
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 3
+Server version: 5.7.33
+
+Copyright (c) 2000, 2021, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> 
+mysql> 
+mysql> 
+mysql> 
+
+
+-- 修改密码（随便写个密码）
+mysql-> ALTER USER 'root'@'localhost' IDENTIFIED BY 'afT3eXg34#A';
+mysql> use mysql
+mysql> SELECT User, Host FROM user;
+mysql> grant all privileges on *.* to 'root'@'%' identified by 'afT3*a24#eXg' with grant option;
+Query OK, 0 rows affected, 1 warning (0.00 sec)
+mysql> FLUSH PRIVILEGES;
+mysql> SELECT User, Host FROM user;
++---------------+-----------+
+| User          | Host      |
++---------------+-----------+
+| root          | %         |
+| mysql.session | localhost |
+| mysql.sys     | localhost |
+| root          | localhost |
++---------------+-----------+
+4 rows in set (0.00 sec)
+
+
+最小化配置文件：
+cat /etc/my.cnf
+[mysqld]
+datadir=/home/data/mysql
+socket=/home/data/mysql/mysql.sock
+symbolic-links=0
+log-error=/home/data/mysql/mysqld.log
+pid-file=/home/data/mysql/mysqld.pid
+innodb_buffer_pool_size=2G
+innodb_thread_concurrency=32
+innodb_io_capacity=20000
+innodb_log_files_in_group=4
+innodb_log_file_size=1000M
+innodb_max_dirty_pages_pct=50
+innodb_file_per_table=on
+back_log=300
+max_connections=3000
+max_user_connections=2980
+table_open_cache=1024
+thread_cache_size=512
+wait_timeout=120
+interactive_timeout=120
+innodb_flush_log_at_trx_commit=1
+sync_binlog=1
+query_cache_type=0
+query_cache_size=0
+sql_mode=STRICT_TRANS_TABLES,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION
+
+
+mysql -uroot -p -e "show databases"
+Enter password: 
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| mysql              |
+| performance_schema |
+| sys                |
++--------------------+
+[@puikiu ~]$ 
+
+mysql> status
+--------------
+mysql  Ver 14.14 Distrib 5.7.33, for Linux (x86_64) using  EditLine wrapper
+
+Connection id:          2
+Current database:
+Current user:           root@localhost
+SSL:                    Not in use
+Current pager:          stdout
+Using outfile:          ''
+Using delimiter:        ;
+Server version:         5.7.33 MySQL Community Server (GPL)
+Protocol version:       10
+Connection:             Localhost via UNIX socket
+Server characterset:    latin1
+Db     characterset:    latin1
+Client characterset:    utf8
+Conn.  characterset:    utf8
+UNIX socket:            /var/lib/mysql/mysql.sock
+Uptime:                 24 min 22 sec
+
+Threads: 1  Questions: 6  Slow queries: 0  Opens: 105  Flush tables: 1  Open tables: 98  Queries per second avg: 0.004
+--------------
+
+mysql> 
