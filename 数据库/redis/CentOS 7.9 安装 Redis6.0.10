@@ -1,4 +1,4 @@
-CentOS 7.9.2009 安装 Redis6.0.10
+CentOS 7.9 安装 Redis6.0.10
 
 1、安装Redis6.0.10需要高版本gcc，所以先临时升级gcc
 yum -y install centos-release-scl
