@@ -235,3 +235,12 @@ redis-benchmark -c 50 -n 10000
 99.23% <= 2 milliseconds
 100.00% <= 2 milliseconds
 77519.38 requests per second #每秒可以处理77519.38次get请求
+
+
+
+-q 仅仅显示redis-benchmark的requests per second信息
+-r 不仅仅写入三个键值，-随机写入更多数值，-r不代表随机数的个数，而是对后几位进行改变。例如：-r 1000 就插入set one 10000343，对后三位变化。
+-P 代表每个请求pipeline的数据量（默认为1）
+-k 代表客户端是否使用keepalive， 1为使用， 0为不使用， 默认值为1
+-t 可以对指定命令进行基准测试 例如：redis-benchmark -t get,set
+--csv 选项会将结果按照csv格式输出， 便于后续处理， 如导出到Excel等。
