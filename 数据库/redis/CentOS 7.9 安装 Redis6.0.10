@@ -195,5 +195,30 @@ chmod +x /etc/rc.d/init.d/redis
 启动
 service redis start
 
+压力测试：
+./redis-benchmark -h 127.0.0.1 -p 6379 -c 50 -n 10000 -q
+ERROR: NOAUTH Authentication required.
+ERROR: failed to fetch CONFIG from 127.0.0.1:6379
+WARN: could not fetch server CONFIG
+PING_INLINE: 62893.08 requests per second
+PING_BULK: 62893.08 requests per second
+SET: 62893.08 requests per second
+GET: 63291.14 requests per second
+INCR: 62500.00 requests per second
+LPUSH: 62500.00 requests per second
+RPUSH: 62893.08 requests per second
+LPOP: 62893.08 requests per second
+RPOP: 62500.00 requests per second
+SADD: 62893.08 requests per second
+HSET: 62893.08 requests per second
+SPOP: 62893.08 requests per second
+ZADD: 62500.00 requests per second
+ZPOPMIN: 62500.00 requests per second
+LPUSH (needed to benchmark LRANGE): 62893.08 requests per second
+LRANGE_100 (first 100 elements): 62500.00 requests per second
+LRANGE_300 (first 300 elements): 63291.14 requests per second
+LRANGE_500 (first 450 elements): 62893.08 requests per second
+LRANGE_600 (first 600 elements): 62500.00 requests per second
+MSET (10 keys): 62893.08 requests per second
 
 
