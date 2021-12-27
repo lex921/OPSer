@@ -249,3 +249,48 @@ redis-benchmark -c 50 -n 10000
 --csv 选项会将结果按照csv格式输出， 便于后续处理， 如导出到Excel等
 -l 生成循环，永久执行
 -s 指定服务器socket
+
+小服务器就略差
+$redis-benchmark -h 127.0.0.1 -p 6379 -c 50 -n 10000 -q
+WARN: could not fetch server CONFIG
+PING_INLINE: 62893.08 requests per second
+PING_BULK: 62893.08 requests per second
+SET: 62893.08 requests per second
+GET: 63291.14 requests per second
+INCR: 62500.00 requests per second
+LPUSH: 62500.00 requests per second
+RPUSH: 62893.08 requests per second
+LPOP: 62893.08 requests per second
+RPOP: 62500.00 requests per second
+SADD: 62893.08 requests per second
+HSET: 62893.08 requests per second
+SPOP: 62893.08 requests per second
+ZADD: 62500.00 requests per second
+ZPOPMIN: 62500.00 requests per second
+LPUSH (needed to benchmark LRANGE): 62893.08 requests per second
+LRANGE_100 (first 100 elements): 62500.00 requests per second
+LRANGE_300 (first 300 elements): 63291.14 requests per second
+LRANGE_500 (first 450 elements): 62893.08 requests per second
+LRANGE_600 (first 600 elements): 62500.00 requests per second
+MSET (10 keys): 62893.08 requests per second
+
+
+服务器的性能真好
+$redis-benchmark -h XXXXXXXX -p 6379 -c 50 -n 10000 -q         
+PING_INLINE: 114942.53 requests per second
+PING_BULK: 112359.55 requests per second
+SET: 123456.79 requests per second
+GET: 131578.95 requests per second
+INCR: 109890.11 requests per second
+LPUSH: 114942.53 requests per second
+LPOP: 111111.11 requests per second
+SADD: 114942.53 requests per second
+SPOP: 109890.11 requests per second
+LPUSH (needed to benchmark LRANGE): 123456.79 requests per second
+LRANGE_100 (first 100 elements): 45045.04 requests per second
+LRANGE_300 (first 300 elements): 17574.69 requests per second
+LRANGE_500 (first 450 elements): 10683.76 requests per second
+LRANGE_600 (first 600 elements): 9250.69 requests per second
+MSET (10 keys): 80645.16 requests per second
+
+
