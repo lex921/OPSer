@@ -222,3 +222,16 @@ LRANGE_600 (first 600 elements): 62500.00 requests per second
 MSET (10 keys): 62893.08 requests per second
 
 
+50个客户端同时请求Redis，一共一万次。默认只会有三个键值来回写入，可以通过keys *看到。
+redis-benchmark -c 50 -n 10000
+
+====== MSET (10 keys) ======
+  10000 requests completed in 0.13 seconds #总共1万次，0.13秒完成
+  50 parallel clients #50并发
+  3 bytes payload #每个请求3字节
+  keep alive: 1
+
+97.81% <= 1 milliseconds #97.81%的命令执行时间小于1毫秒
+99.23% <= 2 milliseconds
+100.00% <= 2 milliseconds
+77519.38 requests per second #每秒可以处理77519.38次get请求
