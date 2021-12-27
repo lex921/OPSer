@@ -1,0 +1,129 @@
+CentOS 7.9.2009 安装 Redis6.0.10
+
+1、安装Redis6.0.10需要高版本gcc，所以先临时升级gcc
+yum -y install centos-release-scl
+yum -y install devtoolset-9-gcc devtoolset-9-gcc-c++ devtoolset-9-binutils
+
+######临时将gcc设置为高版本，会话结束就变回低版本gcc
+scl enable devtoolset-9 bash
+
+2、安装Redis6.0.10
+wget https://download.redis.io/releases/redis-6.0.10.tar.gz
+tar zxvf redis-6.0.10.tar.gz;
+cd redis-6.0.10
+make
+make install
+
+配置服务脚本：
+cp utils/systemd-redis_server.service /usr/lib/systemd/system/redis_server.service 
+vim /usr/lib/systemd/system/redis_server.service 
+查看命令文件、配置文件位置是否正确
+
+ sudo systemctl daemon-reload
+ sudo systemctl status redis
+ sudo systemctl restart redis
+ sudo systemctl stop redis
+ sudo systemctl start redis
+ sudo systemctl enable redis
+
+3、修改配置文件
+vi /usr/local/redis/redis.conf 
+######主要修改的内容
+port 18890    #端口
+daemonize yes    #后台运行
+pidfile /var/run/redis.pid    #pid文件位置，和启动脚本保持一至就行
+requirepass 321pLoN           #密码
+
+
+
+
+
+4、启动脚本
+建议用systemctl
+vi /etc/rc.d/init.d/redis
+######!/bin/sh
+#
+######Simple Redis init.d script conceived to work on Linux systems
+######as it does use of the /proc filesystem.
+source /etc/init.d/functions
+REDISPORT=18890  #注意脚本也有版本号
+EXEC=/usr/local/redis/src/redis-server
+CLIEXEC=/usr/local/redis/src/redis-cli
+ 
+PIDFILE=/var/run/redis.pid
+CONF=/usr/local/redis/redis.conf
+BIND_IP='0.0.0.0'
+ 
+start(){     
+    if [ -f $PIDFILE ]
+    then
+        echo "$PIDFILE exists, process is already running or crashed"
+    else
+        echo "Starting Redis server..."
+        $EXEC $CONF
+    fi
+    if [ "$?"="0" ]  
+    then  
+        echo "Redis is running..." 
+    fi 
+}
+ 
+stop(){ 
+    if [ ! -f $PIDFILE ]
+    then
+        echo "$PIDFILE does not exist, process is not running"
+    else
+        PID=$(cat $PIDFILE)
+        echo "Stopping ..."       
+        $CLIEXEC -h $BIND_IP  -p $REDISPORT  SHUTDOWN 
+        sleep 1
+        while [ -x /proc/${PID} ]
+        do
+            echo "Waiting for Redis to shutdown ..."
+            sleep 1
+        done
+            echo "Redis stopped"
+    fi
+}
+ 
+restart(){
+    stop
+    start 
+}
+
+status(){ 
+    ps -ef|grep redis-server|grep -v grep >/dev/null 2>&1 
+    if [ $? -eq 0 ];then 
+        echo "redis server is running" 
+    else
+        echo "redis server is stopped" 
+    fi
+} 
+ 
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;         
+    restart)
+        restart
+        ;;         
+    status)
+        status
+        ;;     
+    *)
+     
+     echo "Usage: redis-server {start|stop|status|start}" >&2 
+     exit 1 
+esac
+
+脚本加权限
+chmod +x /etc/rc.d/init.d/redis
+
+启动
+service redis start
+
+
+
