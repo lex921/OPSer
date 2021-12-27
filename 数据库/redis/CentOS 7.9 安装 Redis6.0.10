@@ -34,7 +34,7 @@ daemonize yes    #后台运行
 pidfile /var/run/redis.pid    #pid文件位置，和启动脚本保持一至就行
 requirepass 321pLoN           #密码
 
-[liufeng@puikiu redis]$ cat redis.conf|grep -v "#" |sed '/^$/d'
+cat redis.conf|grep -v "#" |sed '/^$/d'
 bind 0.0.0.0
 protected-mode yes
 port 6379
