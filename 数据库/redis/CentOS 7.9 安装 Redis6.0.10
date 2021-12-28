@@ -4,7 +4,7 @@ CentOS 7.9 安装 Redis6.0.10
 yum -y install centos-release-scl
 yum -y install devtoolset-9-gcc devtoolset-9-gcc-c++ devtoolset-9-binutils
 
-######临时将gcc设置为高版本，会话结束就变回低版本gcc
+#####临时将gcc设置为高版本，会话结束就变回低版本gcc
 scl enable devtoolset-9 bash
 
 2、安装Redis6.0.10
