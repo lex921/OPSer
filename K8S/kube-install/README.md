@@ -2,7 +2,7 @@
 
 
 
-<img src="/图库/kube-install-logo.jpeg"  width="320" height="150" >
+<img src="/图库/kube-install-logo.jpeg"  width="320" height="130" >
 
 https://github.com/cloudnativer/kube-install
 
