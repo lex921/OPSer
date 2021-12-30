@@ -1,4 +1,4 @@
-# kube-install
+# kube-install 一键部署
 
 
 
