@@ -1,0 +1,287 @@
+centos7.9 docker19.3.13 kubernetes 1.19 一键安装
+
+
+
+#通过命令行快速安装kubernetes集群
+参考文档：
+https://github.com/lex921/kube-install/blob/master/README0.7-zh.md
+
+
+[root@master-1 ~]# wget https://github.com/cloudnativer/kube-install/releases/download/v0.7.4/kube-install-allinone-v0.7.4.tgz
+--2021-12-30 10:04:38--  https://github.com/cloudnativer/kube-install/releases/download/v0.7.4/kube-install-allinone-v0.7.4.tgz
+Resolving github.com (github.com)... 20.205.243.166
+Connecting to github.com (github.com)|20.205.243.166|:443... connected.
+HTTP request sent, awaiting response... 302 Found
+Location: https://objects.githubusercontent.com/github-production-release-asset-2e65be/247878504/3a51892b-60b3-45b0-a29c-285c36295b48?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIWNJYAX4CSVEH53A%2F20211230%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20211230T020441Z&X-Amz-Expires=300&X-Amz-Signature=e71ba52004fcb6cf80562ff424a55f0daba69f1368c3427ff65d10bc1356b9ed&X-Amz-SignedHeaders=host&actor_id=0&key_id=0&repo_id=247878504&response-content-disposition=attachment%3B%20filename%3Dkube-install-allinone-v0.7.4.tgz&response-content-type=application%2Foctet-stream [following]
+--2021-12-30 10:04:42--  https://objects.githubusercontent.com/github-production-release-asset-2e65be/247878504/3a51892b-60b3-45b0-a29c-285c36295b48?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIWNJYAX4CSVEH53A%2F20211230%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20211230T020441Z&X-Amz-Expires=300&X-Amz-Signature=e71ba52004fcb6cf80562ff424a55f0daba69f1368c3427ff65d10bc1356b9ed&X-Amz-SignedHeaders=host&actor_id=0&key_id=0&repo_id=247878504&response-content-disposition=attachment%3B%20filename%3Dkube-install-allinone-v0.7.4.tgz&response-content-type=application%2Foctet-stream
+Resolving objects.githubusercontent.com (objects.githubusercontent.com)... 185.199.109.133, 185.199.111.133, 185.199.108.133, ...
+Connecting to objects.githubusercontent.com (objects.githubusercontent.com)|185.199.109.133|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 2048228856 (1.9G) [application/octet-stream]
+Saving to: ‘kube-install-allinone-v0.7.4.tgz’
+
+100%[============================================================================================================>] 2,048,228,856 4.93MB/s   in 8m 12s 
+
+2021-12-30 10:12:56 (3.97 MB/s) - ‘kube-install-allinone-v0.7.4.tgz’ saved [2048228856/2048228856]
+
+[root@master-1 ~]# 
+
+
+
+
+
+ tar -zxvf kube-install-allinone-v0.7.4.tgz;cd /root/kube-install/
+
+
+
+[root@master-1 kube-install]# ./kube-install -init -ostype "centos7"
+
+Initialization in progress, please wait...
+
+Notice: If you are prompted to enter the password below, please enter the root password again! 
+
+
+Initialization completed!
+
+[root@master-1 kube-install]# 
+
+
+
+
+[root@master-1 kube-install]# ./kube-install -exec sshcontrol -sship "172.16.201.134,172.16.201.135,172.16.201.136" -sshpass "cloudnativer"
+
+Opening SSH tunnel, please wait...
+
+[Info] 2021-12-30 10:17:21.481655013 +0800 CST m=+0.827336564 Successfully open the SSH channel from local host to the target host (172.16.201.134,172.16.201.135,172.16.201.136)！
+
+
+The SSH tunnel is opened!
+
+[root@master-1 kube-install]# 
+
+
+
+./kube-install -exec install -master "172.16.201.134" -node "172.16.201.135,172.16.201.136" -k8sver "1.19" -ostype "centos7" -label "192168001011"
+
+[root@master-1 kube-install]# ./kube-install -exec install -master "172.16.201.134" -node "172.16.201.135,172.16.201.136" -k8sver "1.19" -ostype "centos7" -label "192168001011"
+*************************************************************************************
+
+[Info] 2021-12-30 11:09:38.042797994 +0800 CST m=+0.069860596 Installing kubernetes cluster, please wait ... 
+
+    Kubernetes Cluster Label: 192168001011
+    Kubernetes Version: Kubernetes v1.19
+    Kubernetes Master: 172.16.201.134
+    Kubernetes Node: 172.16.201.135,172.16.201.136
+    CNI Plug-in Type: flannel
+    Operating System Type: centos7
+    Automatically Upgrade OS Kernel: NO
+    System User for Installation: root
+
+。。。。。。。
+等很久
+
+
+添加节点：
+[root@master-1 kube-install]# ./kube-install -exec addnode -node "172.16.201.134" -k8sver "1.19" -ostype "centos7" -label "192168001011"
+*************************************************************************************
+
+[Info] 2021-12-30 11:45:13.119298816 +0800 CST m=+0.034713797 Adding kubernetes node, please wait ... 
+
+    Kubernetes Cluster Label: 192168001011
+    Kubernetes Node: 172.16.201.134
+    Operating System Type: rhel7
+    Automatically Upgrade OS Kernel: NO
+    System User for Operation: root
+
+
+
+
+整体安装：
+wget https://github.com/cloudnativer/kube-install/releases/download/v0.7.4/kube-install-allinone-v0.7.4.tgz
+tar -zxvf kube-install-allinone-v0.7.4.tgz;cd /root/kube-install/
+./kube-install -init -ostype "centos7"
+./kube-install -exec sshcontrol -sship "172.16.201.134,172.16.201.135,172.16.201.136" -sshpass "cloudnativer"
+./kube-install -exec install -master "172.16.201.134" -node "172.16.201.135,172.16.201.136" -k8sver "1.19" -ostype "centos7" -label "192168001011"
+
+添加节点：
+./kube-install -exec addnode -node "172.16.201.134" -k8sver "1.19" -ostype "centos7" -label "192168001011"
+
+
+
+销毁Kubernetes集群中的Node
+kube-install -exec delnode -node "172.16.201.134,172.16.201.135,172.16.201.136" -label "192168001011"
+
+销毁Kubernetes集群中的Master
+kube-install -exec delmaster -master "172.16.201.134" -label "192168001011"
+
+卸载kubernetes集群
+./kube-install -exec uninstall -master "172.16.201.134" -node "172.16.201.134,172.16.201.135,172.16.201.136" -label "192168001011"
+
+[root@master-1 kube-install]# ./kube-install -exec uninstall -master "172.16.201.134" -node "172.16.201.134,172.16.201.135,172.16.201.136" -label "192168001011"
+*************************************************************************************
+
+[Info] 2021-12-30 13:40:43.269489162 +0800 CST m=+0.027206761 Uninstalling kubernetes cluster, please wait ... 
+
+    Kubernetes Cluster Label: 192168001011
+    Kubernetes Master: 172.16.201.134
+    Kubernetes Node: 172.16.201.134,172.16.201.135,172.16.201.136
+    System User for Uninstallation: root
+
+[Info] 2021-12-30 13:40:43.288449578 +0800 CST m=+0.046167178 Loading operation configuration ... 
+ERROR! the role '/root/kube-install/data/output/192168001011/sys/0x00000000action/delnode' was not found in /root/kube-install/data/output/192168001011/roles:/root/.ansible/roles:/usr/share/ansible/roles:/etc/ansible/roles:/root/kube-install/data/output/192168001011
+
+The error appears to be in '/root/kube-install/data/output/192168001011/k8scluster-delnode.yml': line 5, column 7, but may
+be elsewhere in the file depending on the exact syntax problem.
+
+The offending line appears to be:
+
+  roles:
+    - /root/kube-install/data/output/192168001011/sys/0x00000000action/delnode
+      ^ here
+[Info] 2021-12-30 13:40:43.823131296 +0800 CST m=+0.580848923 All kubernetes node of 192168001011 cluster has been uninstalled successfully! 
+
+............
+
+[Info] 2021-12-30 13:39:54.431167422 +0800 CST m=+101.174492205 Cleaning and detection after uninstallation are in progress. Please wait ... 
+
+[Info] 2021-12-30 13:39:54.46273024 +0800 CST m=+101.206055047 Kubernetes cluster uninstall completed! 
+
+[Info] 2021-12-30 13:39:54.469198557 +0800 CST m=+101.212523354 Cleaning up temporary cache files ... 
+
+[Info] 2021-12-30 13:39:54.509832515 +0800 CST m=+101.253157406 Kubernetes cluster uninstall completed! 
+
+*************************************************************************************
+
+
+
+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#通过Web平台安装kubernetes集群
+
+文档：
+https://github.com/lex921/kube-install/blob/master/docs/webinstall0.7-zh.md
+
+[root@master-1 .ssh]# ssh-copy-id root@172.16.201.135
+[root@master-1 .ssh]# ssh-copy-id root@172.16.201.136
+
+ssh-copy-id root@172.16.201.134;ssh-copy-id root@172.16.201.135;ssh-copy-id root@172.16.201.136
+ssh-copy-id root@172.16.201.135
+ssh-copy-id root@172.16.201.136
+
+ssh-copy-id master-1;ssh-copy-id node-1;ssh-copy-id node-2
+ssh-copy-id node-1
+ssh-copy-id node-2
+
+ssh master-1
+ssh node-1
+
+
+tar -zxvf kube-install-allinone-v0.7.4.tgz;cd /root/kube-install/
+
+
+[root@master-1 kube-install]# ./kube-install -init -ostype "centos7"
+
+Initialization in progress, please wait...
+
+Notice: If you are prompted to enter the password below, please enter the root password again! 
+
+
+Initialization completed!
+
+[root@master-1 kube-install]# 
+
+
+[root@master-1 kube-install]#  systemctl start kube-install.service
+[root@master-1 kube-install]# systemctl status kube-install.service
+● kube-install.service - The highly available multiple kubernetes cluster can be installed offline with one click.
+   Loaded: loaded (/etc/systemd/system/kube-install.service; disabled; vendor preset: disabled)
+   Active: active (running) since Thu 2021-12-30 13:43:09 CST; 5s ago
+     Docs: https://cloudnativer.github.io
+ Main PID: 12742 (kube-install)
+    Tasks: 6
+   Memory: 11.2M
+   CGroup: /system.slice/kube-install.service
+           └─12742 /root/kube-install/kube-install -daemon
+
+Dec 30 13:43:10 master-1 kube-install[12742]: [GIN-debug] POST   /rebuildmaster            --> kube-install/lib.DaemonRun.func17 (3 handlers)
+Dec 30 13:43:10 master-1 kube-install[12742]: [GIN-debug] POST   /delmaster                --> kube-install/lib.DaemonRun.func18 (3 handlers)
+Dec 30 13:43:10 master-1 kube-install[12742]: [GIN-debug] POST   /addnode                  --> kube-install/lib.DaemonRun.func19 (3 handlers)
+Dec 30 13:43:10 master-1 kube-install[12742]: [GIN-debug] POST   /delnode                  --> kube-install/lib.DaemonRun.func20 (3 handlers)
+Dec 30 13:43:10 master-1 kube-install[12742]: [GIN-debug] POST   /uninstall                --> kube-install/lib.DaemonRun.func21 (3 handlers)
+Dec 30 13:43:10 master-1 kube-install[12742]: [GIN-debug] POST   /deleteinstallschedule    --> kube-install/lib.DaemonRun.func22 (3 handlers)
+Dec 30 13:43:10 master-1 kube-install[12742]: [GIN-debug] POST   /toolswitch               --> kube-install/lib.DaemonRun.func23 (3 handlers)
+Dec 30 13:43:10 master-1 kube-install[12742]: [GIN-debug] POST   /sshkey                   --> kube-install/lib.DaemonRun.func24 (3 handlers)
+Dec 30 13:43:10 master-1 kube-install[12742]: [GIN-debug] GET    /tty                      --> kube-install/lib.DaemonRun.func25 (3 handlers)
+Dec 30 13:43:10 master-1 kube-install[12742]: [GIN-debug] Listening and serving HTTP on 0.0.0.0:9080
+[root@master-1 kube-install]# 
+
+
+
+
+
+此时，你就可以使用网页浏览器打开http://kube-install源安装机IP:9080，访问kube-install的Web管理平台了。
+注意：kube-install的Web管理平台服务默认监听TCP 9080。如果你想修改这个监听地址的话，可以通过修改/etc/systemd/system/kube-install.service文件中的kube-install -daemon -listen ip:port参数来进行设置，点击这里可以查看详细文档！
+
+http://172.16.201.134:9080/
+
+点 cluster --> install k8s
+
+
+
+
+登录kubernetes dashboard界面
+
+通过查看loginkey.txt文件可以获取kube-dashboard的登录地址和密钥。
+cat /opt/kube-install/loginkey.txt
+
+https://172.16.201.135:32767
+
+
+
+[root@master-1 kube-install]# kubectl get all -A
+NAMESPACE     NAME                                   READY   STATUS    RESTARTS   AGE
+kube-system   pod/coredns-9d54c8cd8-6f6xl            1/1     Running   1          11m
+kube-system   pod/docker-registry-95f745988-m47d7    1/1     Running   1          11m
+kube-system   pod/heapster-64d4f976d7-bnnpf          1/1     Running   1          10m
+kube-system   pod/kube-dashboard-6869c58598-757hk    1/1     Running   1          11m
+kube-system   pod/kube-flannel-ds-qjf84              1/1     Running   5          13m
+kube-system   pod/kube-flannel-ds-ql5wm              1/1     Running   5          13m
+kube-system   pod/metrics-server-659db7cb59-grb8w    1/1     Running   1          11m
+kube-system   pod/traefik-ingress-controller-2q8p7   1/1     Running   1          10m
+kube-system   pod/traefik-ingress-controller-5zpkl   1/1     Running   1          10m
+
+NAMESPACE     NAME                              TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                  AGE
+default       service/kubernetes                ClusterIP   10.254.0.1      <none>        443/TCP                  15m
+kube-system   service/docker-registry           NodePort    10.254.214.89   <none>        5000:5000/TCP            11m
+kube-system   service/heapster                  ClusterIP   10.254.210.51   <none>        80/TCP                   10m
+kube-system   service/ipvsinit-lb               ClusterIP   10.254.0.3      <none>        6443/TCP                 13m
+kube-system   service/kube-dashboard            NodePort    10.254.64.189   <none>        443:32767/TCP            11m
+kube-system   service/kube-dns                  ClusterIP   10.254.0.2      <none>        53/UDP,53/TCP,9153/TCP   11m
+kube-system   service/metrics-server            ClusterIP   10.254.126.80   <none>        443/TCP                  11m
+kube-system   service/traefik-ingress-service   ClusterIP   10.254.76.196   <none>        80/TCP,8080/TCP          10m
+
+NAMESPACE     NAME                                        DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+kube-system   daemonset.apps/kube-flannel-ds              2         2         2       2            2           <none>          14m
+kube-system   daemonset.apps/traefik-ingress-controller   2         2         2       2            2           <none>          10m
+
+NAMESPACE     NAME                              READY   UP-TO-DATE   AVAILABLE   AGE
+kube-system   deployment.apps/coredns           1/1     1            1           11m
+kube-system   deployment.apps/docker-registry   1/1     1            1           11m
+kube-system   deployment.apps/heapster          1/1     1            1           10m
+kube-system   deployment.apps/kube-dashboard    1/1     1            1           11m
+kube-system   deployment.apps/metrics-server    1/1     1            1           11m
+
+NAMESPACE     NAME                                        DESIRED   CURRENT   READY   AGE
+kube-system   replicaset.apps/coredns-9d54c8cd8           1         1         1       11m
+kube-system   replicaset.apps/docker-registry-95f745988   1         1         1       11m
+kube-system   replicaset.apps/heapster-64d4f976d7         1         1         1       10m
+kube-system   replicaset.apps/kube-dashboard-6869c58598   1         1         1       11m
+kube-system   replicaset.apps/metrics-server-659db7cb59   1         1         1       11m
+[root@master-1 kube-install]# 
+
+
+
+
+
+
+
+
