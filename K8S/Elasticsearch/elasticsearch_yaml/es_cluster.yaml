@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: es-svc
+  namespace: wiseco
+  labels:
+    app: es
+spec:
+#  type: NodePort
+  ports:
+  - port: 9200
+    targetPort: 9200
+    name: outer
+  - port: 9300
+    targetPort: 9300
+    name: inner
+#    nodePort: 30000
+  clusterIP: None
+  selector:
+    app: es
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: wiseco
+spec:
+  serviceName: "es-svc"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: es
+  template:
+    metadata:
+      labels:
+        app: es
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - es
+              topologyKey: "kubernetes.io/hostname"
+      initContainers:
+      - name: increase-vm-max-map
+        image: busybox
+        command: ["sysctl", "-w", "vm.max_map_count=262144"]
+        securityContext:
+          privileged: true
+      - name: increase-fd-ulimit
+        image: busybox
+        command: ["sh", "-c", "ulimit -n 65536"]
+        securityContext:
+          privileged: true
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: elasticsearch
+          image: lex921/elasticsearch-7.6.2:0.1
+          imagePullPolicy: Always
+          ports:
+          - containerPort: 9200
+            name: outer
+          - containerPort: 9300
+            name: inner             
+          env:
+          - name: MY_POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          resources:
+            requests:
+              memory: 1024Mi
+              cpu: 500m
+            limits:
+              memory: 2048Mi
+              cpu: 1500m
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh","-c","touch /tmp/health"]
+          livenessProbe:
+            exec:
+              command: ["test","-e","/tmp/health"]
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: outer
+            initialDelaySeconds: 15
+            timeoutSeconds: 5
+            periodSeconds: 20
+          volumeMounts:
+            - name: es-date
+              mountPath: /opt/elasticsearch-7.6.2/data
+            - name: es-log
+              mountPath: /opt/local/elasticsearch-7.6.2/logs
+              readOnly: false
+      volumes:
+      - name: es-log
+        hostPath:
+          path: /var/log/k8s-log/es
+  volumeClaimTemplates:
+  - metadata:
+      name: es-date
+      annotations:
+        volume.beta.kubernetes.io/storage-class: "es-nfs-storage"
+    spec:
+      accessModes:
+        - ReadWriteMany
+      resources:
+        requests:
+          storage: 10Gi
