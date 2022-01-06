@@ -1,6 +1,5 @@
 ##(二十五)、K8S部署ES集群
-参考：
-https://www.cnblogs.com/kevingrace/p/14444075.html
+
 
 ####一、使用NFS配置持久化存储
 #####1、在NFS服务器端通过nfs创建es、filebeat共享目录
@@ -656,4 +655,5 @@ PreferNoSchedule: 尽量不要调度
 NoExecute: 不仅不会调度, 还会驱逐Node上已有的Pod
 ######允许 master 节点运行 pod
 
-
+#####参考：
+https://www.cnblogs.com/kevingrace/p/14444075.html
