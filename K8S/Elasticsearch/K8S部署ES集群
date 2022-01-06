@@ -251,33 +251,20 @@ CMD ["/opt/elasticsearch-7.6.2/bin/elasticsearch"]
 
 
 
-
-FROM centos:latest
-RUN rm -f /etc/localtime \
-&& ln -sv /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-&& echo "Asia/Shanghai" > /etc/timezone
- 
-ENV LANG en_US.UTF-8
-ENV MAVEN_HOME /usr/local/maven
-ENV PATH $PATH:$MAVEN_HOME/bin
-ENV JAVA_HOME=/usr/local/jdk1.8.0_311
-ENV CLASSPATH=.$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
-ENV PATH=$JAVA_HOME/bin:$PATH
-ADD jdk-8u311-linux-x64.tar.gz /usr/local/
-
-
 #####4）制作镜像(时间很长) 没有景象库，每个节点都打包
 [root@master-1 images]# docker build -f ./Dockerfile -t elasticsearch-7.6.2:0.1 . 
 [root@node-1 images]# docker build -f ./Dockerfile -t elasticsearch-7.6.2:0.1 . 
 [root@node-2 images]# docker build -f ./Dockerfile -t elasticsearch-7.6.2:0.1 . 
 
 
-https://hub.docker.com/repositories
 
-lex921/cicd
+
 
 
 #####5）上传景象
+保存在：
+https://hub.docker.com/repositories
+
 
 [root@master-1 elasticsearch]# docker login
 Login with your Docker ID to push and pull images from Docker Hub. If you don't have a Docker ID, head over to https://hub.docker.com to create one.
