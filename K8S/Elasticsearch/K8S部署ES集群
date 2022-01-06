@@ -1,4 +1,5 @@
 ##(二十五)、K8S部署ES集群
+参考：
 https://www.cnblogs.com/kevingrace/p/14444075.html
 
 ####一、使用NFS配置持久化存储
