@@ -268,3 +268,15 @@ NAMESPACE     NAME                                 DESIRED   CURRENT   READY   A
 kube-system   replicaset.apps/coredns-6d56c8448f   2         2         2       18d
 [root@master-1 ~]# 
 
+
+更改角色：
+[root@master-1 images]# kubectl label node node-1 node-role.kubernetes.io/worker=worker
+[root@master-1 images]# kubectl label node node-2 node-role.kubernetes.io/worker=worker
+[root@master-1 images]# kubectl label node node1 roles=node1
+[root@master-1 images]# kubectl label node node2 roles=node2
+[root@master-1 images]#  kubectl get no --show-labels
+NAME       STATUS   ROLES    AGE     VERSION   LABELS
+master-1   Ready    master   3h12m   v1.19.9   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=master-1,kubernetes.io/os=linux,node-role.kubernetes.io/master=
+node-1     Ready    worker   177m    v1.19.9   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=node-1,kubernetes.io/os=linux,node-role.kubernetes.io/worker=worker,roles=node1
+node-2     Ready    worker   177m    v1.19.9   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=node-2,kubernetes.io/os=linux,node-role.kubernetes.io/worker=worker,roles=node2
+[root@master-1 images]# 
