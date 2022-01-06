@@ -317,3 +317,21 @@ PreferNoSchedule: 尽量不要调度
 NoExecute: 不仅不会调度, 还会驱逐Node上已有的Pod
 ######允许 master 节点运行 pod
 
+增加：
+kubectl label nodes 节点名字 node-role.kubernetes.io/你想要的roles
+kubectl label node node-2 node-role.kubernetes.io/node=node 
+
+
+[root@master-1 images]# kubectl get nodes
+NAME       STATUS   ROLES    AGE     VERSION
+master-1   Ready    master   3h23m   v1.19.9
+node-1     Ready    node     3h8m    v1.19.9
+node-2     Ready    node     3h8m    v1.19.9
+
+删除
+[root@master-1 elasticsearch]# kubectl label node node-1 node-role.kubernetes.io/worker-
+node/node-1 labeled
+
+
+##后面还有一个减号或等号
+##减号就是删除roles，等号就是增加roles
