@@ -1,0 +1,658 @@
+##(二十五)、K8S部署ES集群
+https://www.cnblogs.com/kevingrace/p/14444075.html
+
+####一、使用NFS配置持久化存储
+#####1、在NFS服务器端通过nfs创建es、filebeat共享目录
+
+[root@master-1 mysql]# yum -y install rpcbind nfs-utils
+######启动rpcbind、nfs服务
+[root@master-1 mysql]# systemctl restart rpcbind && systemctl enable rpcbind
+[root@master-1 mysql]# systemctl restart nfs && systemctl enable nfs
+Created symlink from /etc/systemd/system/multi-user.target.wants/nfs-server.service to /usr/lib/systemd/system/nfs-server.service.
+[root@master-1 mysql]# rpcinfo -p localhost
+
+
+[root@master-1 elasticsearch]# mkdir -p /data/storage/k8s/es
+[root@master-1 elasticsearch]#  echo '/data/storage/k8s/es *(rw,no_root_squash)' >> /etc/exports
+[root@master-1 elasticsearch]#  exportfs -r
+[root@master-1 elasticsearch]# exportfs 
+/data/storage/k8s/es
+                <world>
+[root@master-1 elasticsearch]# showmount -e 172.16.201.134
+Export list for 172.16.201.134:
+/data/storage/k8s/es *
+
+
+
+[root@master-1 elasticsearch]#  mount -t nfs 172.16.201.134:/data/storage/k8s/es /data/storage/k8s/es
+[root@master-1 elasticsearch]# mount -t nfs 172.16.201.134:/data/storage/k8s/es /data/storage/k8s/es
+
+[root@master-1 elasticsearch]#  df -h|grep 134
+172.16.201.134:/data/storage/k8s/es  100G   11G   90G  11% /data/storage/k8s/es
+
+[root@master-1 elasticsearch]#   df -h|grep 134
+172.16.201.134:/data/storage/k8s/es  100G   11G   90G  11% /data/storage/k8s/es
+
+
+
+#####2、创建NFS的rbac
+
+[root@master-1 elasticsearch]# cd 
+[root@master-1 ~]# cd elasticsearch/
+
+[root@master-1 elasticsearch]# kubectl create namespace wiseco
+namespace/wiseco created
+
+[root@master-1 elasticsearch]# vim nfs-rbac.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfs-provisioner
+  namespace: wiseco
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+   name: nfs-provisioner-runner
+   namespace: wiseco
+rules:
+   -  apiGroups: [""]
+      resources: ["persistentvolumes"]
+      verbs: ["get", "list", "watch", "create", "delete"]
+   -  apiGroups: [""]
+      resources: ["persistentvolumeclaims"]
+      verbs: ["get", "list", "watch", "update"]
+   -  apiGroups: ["storage.k8s.io"]
+      resources: ["storageclasses"]
+      verbs: ["get", "list", "watch"]
+   -  apiGroups: [""]
+      resources: ["events"]
+      verbs: ["watch", "create", "update", "patch"]
+   -  apiGroups: [""]
+      resources: ["services", "endpoints"]
+      verbs: ["get","create","list", "watch","update"]
+   -  apiGroups: ["extensions"]
+      resources: ["podsecuritypolicies"]
+      resourceNames: ["nfs-provisioner"]
+      verbs: ["use"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: run-nfs-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: nfs-provisioner
+    namespace: wiseco
+roleRef:
+  kind: ClusterRole
+  name: nfs-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+
+
+[root@master-1 elasticsearch]# kubectl apply -f nfs-rbac.yaml
+serviceaccount/nfs-provisioner created
+clusterrole.rbac.authorization.k8s.io/nfs-provisioner-runner created
+clusterrolebinding.rbac.authorization.k8s.io/run-nfs-provisioner created
+
+[root@master-1 elasticsearch]#  kubectl get sa -n wiseco|grep nfs
+nfs-provisioner   1         8s
+[root@master-1 elasticsearch]# kubectl get clusterrole -n wiseco|grep nfs
+nfs-provisioner-runner                                                 2022-01-06T07:09:09Z
+[root@master-1 elasticsearch]# kubectl get clusterrolebinding -n wiseco|grep nfs
+run-nfs-provisioner                                    ClusterRole/nfs-provisioner-runner                                                 13s
+[root@master-1 elasticsearch]# 
+
+
+####二、ES集群部署
+ES7.0+新版废弃了原先discovery.zen.ping.unicast.hosts及discovery.zen.minimum_master_nodes的探测方式
+改为了discovery.seed_hosts及cluster.initial_master_nodes。
+
+#####1）创建es集群的storage
+
+[root@master-1 elasticsearch]# vim es-nfs-class.yaml
+apiVersion: storage.k8s.io/v1beta1
+kind: StorageClass
+metadata:
+  name: es-nfs-storage
+  namespace: wiseco
+provisioner: es/nfs
+reclaimPolicy: Retain
+
+创建和查看
+[root@master-1 elasticsearch]# kubectl apply -f es-nfs-class.yaml
+Warning: storage.k8s.io/v1beta1 StorageClass is deprecated in v1.19+, unavailable in v1.22+; use storage.k8s.io/v1 StorageClass
+storageclass.storage.k8s.io/es-nfs-storage created
+
+[root@master-1 elasticsearch]# kubectl get sc -n wiseco
+NAME             PROVISIONER   RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+es-nfs-storage   es/nfs        Retain          Immediate           false                  27s
+[root@master-1 elasticsearch]# 
+
+#####2）创建es集群的nfs-client-provisioner
+[root@master-1 elasticsearch]# vim es-nfs.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: es-nfs-client-provisioner
+  namespace: wiseco
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: es-nfs-client-provisioner
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: es-nfs-client-provisioner
+    spec:
+      serviceAccount: nfs-provisioner
+      containers:
+        - name: es-nfs-client-provisioner
+          image: registry.cn-hangzhou.aliyuncs.com/open-ali/nfs-client-provisioner
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: nfs-client-root
+              mountPath:  /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              value: es/nfs
+            - name: NFS_SERVER
+              value:  172.16.201.134
+            - name: NFS_PATH
+              value: /data/storage/k8s/es
+      volumes:
+        - name: nfs-client-root
+          nfs:
+            server:  172.16.201.134
+            path: /data/storage/k8s/es
+
+创建并查看
+[root@master-1 elasticsearch]# kubectl apply -f es-nfs.yml
+deployment.apps/es-nfs-client-provisioner created
+
+[root@master-1 elasticsearch]# kubectl get pods -n wiseco|grep nfs
+es-nfs-client-provisioner-7765db9996-69gkx   0/1     ContainerCreating   0          2s
+
+[root@master-1 ~]#  kubectl get pods -n wiseco
+NAME                                         READY   STATUS    RESTARTS   AGE
+es-nfs-client-provisioner-7765db9996-5kd9h   1/1     Running   0          10m
+
+
+#####3）制作ES集群的镜像（jdk镜像、es镜像）
+需要注意：
+ES 7.6.2启动要求jdk要在java11以上版本，否则es启动会报错：
+future versions of Elasticsearch will require Java 11; your Java version from [/usr/java/jdk1.8.0_192/jre] does not meet this requirement
+ 
+接着制作es集群的镜像
+下载elasticsearch-7.6.2-linux-x86_64.tar.gz安装包、准备elasticsearch.yml配置文件，这两个文件一起放到image镜像里。
+这里千万要注意：node节点主机名要使用正确解析到的完整域名：pod名称.service名称.namespace名称.svc.cluster.local
+
+wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.6.2-linux-x86_64.tar.gz
+
+[root@master-1 images]# mkdir images/
+[root@master-1 images]# cd images/
+[root@master-1 images]# wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.6.2-linux-x86_64.tar.gz
+
+
+[root@master-1 images]# vim elasticsearch.yml
+cluster.name: es-cluster
+node.name: ${MY_POD_NAME}.es-svc.wiseco.svc.cluster.local
+path.data: /opt/elasticsearch-7.6.2/data
+path.logs: /opt/elasticsearch-7.6.2/logs
+network.host: 0.0.0.0
+http.port: 9200
+http.cors.enabled:  true
+http.cors.allow-origin: "*"
+node.master: true
+node.data: true
+discovery.seed_hosts: ["es-0.es-svc.wiseco.svc.cluster.local","es-1.es-svc.wiseco.svc.cluster.local","es-2.es-svc.wiseco.svc.cluster.local"]
+cluster.initial_master_nodes: ["es-0.es-svc.wiseco.svc.cluster.local","es-1.es-svc.wiseco.svc.cluster.local","es-2.es-svc.wiseco.svc.cluster.local"]
+
+
+
+镜像文件内容：
+[root@master-1 elasticsearch]# vim Dockerfile
+FROM centos:latest
+ 
+RUN rm -f /etc/localtime \
+&& ln -sv /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+&& echo "Asia/Shanghai" > /etc/timezone
+ 
+ENV LANG en_US.UTF-8
+ENV MAVEN_HOME /usr/local/maven
+ENV PATH $PATH:$MAVEN_HOME/bin
+ENV JAVA_HOME=/usr/local/jdk1.8.0_311
+ENV CLASSPATH=.$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+ENV PATH=$JAVA_HOME/bin:$PATH
+ADD jdk-8u311-linux-x64.tar.gz /usr/local/
+
+ADD elasticsearch-7.6.2-linux-x86_64.tar.gz /opt
+ 
+ 
+RUN mkdir -p /opt/elasticsearch-7.6.2/data \
+&& mkdir -p /opt/elasticsearch-7.6.2/logs \
+&& useradd elasticsearch \
+&& chown -R elasticsearch:elasticsearch /opt \
+&& chmod -R 777 /opt \
+&& setfacl -R -m u:elasticsearch:rwx /opt \
+&& setfacl -R -m u:elasticsearch:rwx /opt \
+&& rm -f /opt/elasticsearch-7.6.2/config/elasticsearch.yml
+ 
+COPY elasticsearch.yml /opt/elasticsearch-7.6.2/config/
+ 
+USER elasticsearch
+ 
+EXPOSE 9200 9300
+CMD ["/opt/elasticsearch-7.6.2/bin/elasticsearch"]
+
+
+
+
+FROM centos:latest
+RUN rm -f /etc/localtime \
+&& ln -sv /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+&& echo "Asia/Shanghai" > /etc/timezone
+ 
+ENV LANG en_US.UTF-8
+ENV MAVEN_HOME /usr/local/maven
+ENV PATH $PATH:$MAVEN_HOME/bin
+ENV JAVA_HOME=/usr/local/jdk1.8.0_311
+ENV CLASSPATH=.$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+ENV PATH=$JAVA_HOME/bin:$PATH
+ADD jdk-8u311-linux-x64.tar.gz /usr/local/
+
+
+#####4）制作镜像(时间很长) 没有景象库，每个节点都打包
+[root@master-1 images]# docker build -f ./Dockerfile -t elasticsearch-7.6.2:0.1 . 
+[root@node-1 images]# docker build -f ./Dockerfile -t elasticsearch-7.6.2:0.1 . 
+[root@node-2 images]# docker build -f ./Dockerfile -t elasticsearch-7.6.2:0.1 . 
+
+
+https://hub.docker.com/repositories
+
+lex921/cicd
+
+
+#####5）上传景象
+
+[root@master-1 elasticsearch]# docker login
+Login with your Docker ID to push and pull images from Docker Hub. If you don't have a Docker ID, head over to https://hub.docker.com to create one.
+Username: lex921
+Password: 
+WARNING! Your password will be stored unencrypted in /root/.docker/config.json.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+
+Login Succeeded
+
+
+[root@master-1 images]# docker tag elasticsearch-7.6.2:0.1 lex921/elasticsearch-7.6.2:0.1
+[root@master-1 images]# docker push lex921/elasticsearch-7.6.2:0.1
+The push refers to repository [docker.io/lex921/elasticsearch-7.6.2]
+0f4db47b423a: Pushed 
+bf1706f8efe0: Pushed 
+3fb287faf9ad: Pushed 
+92f8fbd9de2d: Pushed 
+7ff82a2ed1f5: Pushed 
+74ddd0ec08fa: Mounted from library/centos 
+0.1: digest: sha256:546200fce7ba03c74dd81999d4f8f1bc8de74d09bb9ae78793727aef1fb5d0c9 size: 1582
+[root@master-1 images]# 
+
+
+
+
+
+#####6）部署
+
+[root@node-2 images]#  vim es_cluster.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: es-svc
+  namespace: wiseco
+  labels:
+    app: es
+spec:
+  ports:
+  - port: 9200
+    targetPort: 9200
+    name: outer
+  - port: 9300
+    targetPort: 9300
+    name: inner
+  clusterIP: None
+  selector:
+    app: es
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: es
+  namespace: wiseco
+spec:
+  serviceName: "es-svc"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: es
+  template:
+    metadata:
+      labels:
+        app: es
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - es
+              topologyKey: "kubernetes.io/hostname"
+      initContainers:
+      - name: increase-vm-max-map
+        image: busybox
+        command: ["sysctl", "-w", "vm.max_map_count=262144"]
+        securityContext:
+          privileged: true
+      - name: increase-fd-ulimit
+        image: busybox
+        command: ["sh", "-c", "ulimit -n 65536"]
+        securityContext:
+          privileged: true
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: es
+          image: lex921/elasticsearch-7.6.2:0.1
+          imagePullPolicy: Always
+          ports:
+          - containerPort: 9200
+            name: outer
+          - containerPort: 9300
+            name: inner             
+          env:
+          - name: MY_POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          resources:
+            requests:
+              memory: 1024Mi
+              cpu: 500m
+            limits:
+              memory: 2048Mi
+              cpu: 1500m
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/sh","-c","touch /tmp/health"]
+          livenessProbe:
+            exec:
+              command: ["test","-e","/tmp/health"]
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: outer
+            initialDelaySeconds: 15
+            timeoutSeconds: 5
+            periodSeconds: 20
+          volumeMounts:
+            - name: es-date
+              mountPath: /opt/elasticsearch-7.6.2/data
+            - name: es-log
+              mountPath: /opt/local/elasticsearch-7.6.2/logs
+              readOnly: false
+      volumes:
+      - name: es-log
+        hostPath:
+          path: /var/log/k8s-log/es
+  volumeClaimTemplates:
+  - metadata:
+      name: es-date
+      annotations:
+        volume.beta.kubernetes.io/storage-class: "es-nfs-storage"
+    spec:
+      accessModes:
+        - ReadWriteMany
+      resources:
+        requests:
+          storage: 10Gi
+
+
+kubectl delete -f es_cluster.yaml
+[root@master-1 elasticsearch]# kubectl apply -f es_cluster.yaml
+service/es-svc created
+statefulset.apps/es created
+[root@master-1 elasticsearch]# 
+
+
+[root@master-1 elasticsearch]#  kubectl get pods -n wiseco -o wide --watch
+NAME                                         READY   STATUS    RESTARTS   AGE     IP           NODE       NOMINATED NODE   READINESS GATES
+elasticsearch-0                              1/1     Running   0          5m28s   10.244.2.6   node-2     <none>           <none>
+elasticsearch-1                              1/1     Running   0          3m36s   10.244.1.7   node-1     <none>           <none>
+elasticsearch-2                              1/1     Running   0          109s    10.244.0.5   master-1   <none>           <none>
+
+
+[root@master-1 images]# kubectl get svc -n wiseco|grep es
+NAME     TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)             AGE
+es-svc   ClusterIP   None         <none>        9200/TCP,9300/TCP   34m
+
+
+[root@master-1 images]# kubectl get statefulset -n wiseco|grep es
+es     3/3     17m
+
+
+
+kubectl get event -n wiseco
+kubectl describe pod es-0 -n wiseco
+
+
+#####7）部署查看NFS共享存储
+NFS服务器（172.16.201.134），查看共享目录/data/storage/k8s/es
+[root@master-1 images]# cd /data/storage/k8s/es/
+
+[root@master-1 es]# ll
+total 0
+drwxrwxrwx 3 root root 19 Jan  6 16:00 wiseco-es-date-es-0-pvc-2496ed70-89e1-4421-a3e2-995e200aaf54
+drwxrwxrwx 3 root root 19 Jan  6 16:04 wiseco-es-date-es-1-pvc-992a11f7-8600-4526-a508-8488d292372c
+drwxrwxrwx 3 root root 19 Jan  6 16:12 wiseco-es-date-es-2-pvc-56912c76-183d-4b4c-b6b3-dfb450562899
+[root@master-1 es]# 
+
+[root@master-1 es]# ll ./*
+./wiseco-es-date-es-0-pvc-2496ed70-89e1-4421-a3e2-995e200aaf54:
+total 0
+drwxr-xr-x 3 1000 1000 15 Jan  6 16:00 nodes
+
+./wiseco-es-date-es-1-pvc-992a11f7-8600-4526-a508-8488d292372c:
+total 0
+drwxr-xr-x 3 1000 1000 15 Jan  6 16:04 nodes
+
+./wiseco-es-date-es-2-pvc-56912c76-183d-4b4c-b6b3-dfb450562899:
+total 0
+drwxr-xr-x 3 1000 1000 15 Jan  6 16:12 nodes
+[root@master-1 es]# 
+
+#####8）ES集群访问地址
+ES集群在k8s内部访问地址：es-svc.wiseco.svc.cluster.local:9200
+
+ES集群在k8s外部访问
+需要配置ingress，提供一个外部访问的域名。比如：
+[root@k8s-master01 ingress]# cat ingress.yml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: wise-ingress
+  namespace: wiseco
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+  - host: es.test.com
+    http:
+     paths:
+     - backend:
+         serviceName: es-svc
+         servicePort: 9200
+这样，在K8S集群外部访问此ES集群，访问地址为：http://es.test.com
+
+#####9）ES集群连接和信息查看
+可以登录到其中的一个es节点，进行es集群访问测试
+[root@master-1 es]# kubectl exec -ti es-0 -n wiseco -- /bin/bash
+[elasticsearch@elasticsearch-0 /]$ curl http://es-svc.wiseco.svc.cluster.local:9200
+{
+  "name" : "es-0.es-svc.wiseco.svc.cluster.local",
+  "cluster_name" : "es-cluster",
+  "cluster_uuid" : "_na_",
+  "version" : {
+    "number" : "7.6.2",
+    "build_flavor" : "default",
+    "build_type" : "tar",
+    "build_hash" : "ef48eb35cf30adf4db14086e8aabd07ef6fb113f",
+    "build_date" : "2020-03-26T06:34:37.794943Z",
+    "build_snapshot" : false,
+    "lucene_version" : "8.4.0",
+    "minimum_wire_compatibility_version" : "6.8.0",
+    "minimum_index_compatibility_version" : "6.0.0-beta1"
+  },
+  "tagline" : "You Know, for Search"
+}
+[elasticsearch@elasticsearch-0 /]$ 
+
+查看ES集群状态
+[elasticsearch@es-0 /]$ curl -XGET "http://es-svc.wiseco.svc.cluster.local:9200/_cat/nodes"
+10.244.2.4 16 64 10 0.18 0.51 0.55 dilm * es-0.es-svc.wiseco.svc.cluster.local
+10.244.0.3 15 66 32 1.06 0.86 0.77 dilm - es-2.es-svc.wiseco.svc.cluster.local
+10.244.1.3 15 63 12 0.18 0.19 0.25 dilm - es-1.es-svc.wiseco.svc.cluster.local
+[elasticsearch@es-0 /]$ 
+
+查看集群详细信息，后面添加"?v"
+注意：带*符号的表示是当前的master主节点
+[elasticsearch@es-0 /]$ curl -XGET 'http://es-svc.wiseco.svc.cluster.local:9200/_cat/nodes?v'
+ip         heap.percent ram.percent cpu load_1m load_5m load_15m node.role master name
+10.244.2.4           17          64  10    0.13    0.48     0.54 dilm      *      es-0.es-svc.wiseco.svc.cluster.local
+10.244.0.3           16          66  30    1.16    0.88     0.78 dilm      -      es-2.es-svc.wiseco.svc.cluster.local
+10.244.1.3           16          63  12    0.13    0.18     0.25 dilm      -      es-1.es-svc.wiseco.svc.cluster.local
+[elasticsearch@es-0 /]$ 
+
+
+查询集群状态方法
+[elasticsearch@es-0 /]$ curl -XGET 'http://es-svc.wiseco.svc.cluster.local:9200/_cluster/state/nodes?pretty'
+{
+  "cluster_name" : "es-cluster",
+  "cluster_uuid" : "o1BXy0OfTry-835xRMrllQ",
+  "nodes" : {
+    "V0fYZZC_SceXsF0cS9ohcQ" : {
+      "name" : "es-0.es-svc.wiseco.svc.cluster.local",
+      "ephemeral_id" : "PonrZeQNTTaHNZSQAAWDtg",
+      "transport_address" : "10.244.2.4:9300",
+      "attributes" : {
+        "ml.machine_memory" : "2147483648",
+        "xpack.installed" : "true",
+        "ml.max_open_jobs" : "20"
+      }
+    },
+    "BESMMETtRHyzQ2ep6Z8vkw" : {
+      "name" : "es-2.es-svc.wiseco.svc.cluster.local",
+      "ephemeral_id" : "r7gwnErRQuG0K4kb7_3aTg",
+      "transport_address" : "10.244.0.3:9300",
+      "attributes" : {
+        "ml.machine_memory" : "2147483648",
+        "ml.max_open_jobs" : "20",
+        "xpack.installed" : "true"
+      }
+    },
+    "wfXj9wadSkG5n0Pa6XGh8w" : {
+      "name" : "es-1.es-svc.wiseco.svc.cluster.local",
+      "ephemeral_id" : "VFF04NU8R72yBr_jaiVsWw",
+      "transport_address" : "10.244.1.3:9300",
+      "attributes" : {
+        "ml.machine_memory" : "2147483648",
+        "ml.max_open_jobs" : "20",
+        "xpack.installed" : "true"
+      }
+    }
+  }
+}
+[elasticsearch@es-0 /]$ 
+
+查询集群中的master（下面两个命令都可以）
+[elasticsearch@es-0 /]$ curl -XGET 'http://es-svc.wiseco.svc.cluster.local:9200/_cluster/state/master_node?pretty'
+{
+  "cluster_name" : "es-cluster",
+  "cluster_uuid" : "o1BXy0OfTry-835xRMrllQ",
+  "master_node" : "V0fYZZC_SceXsF0cS9ohcQ"
+}
+[elasticsearch@es-0 /]$ curl -XGET 'http://es-svc.wiseco.svc.cluster.local:9200/_cat/master?v'
+id                     host       ip         node
+V0fYZZC_SceXsF0cS9ohcQ 10.244.2.4 10.244.2.4 es-0.es-svc.wiseco.svc.cluster.local
+[elasticsearch@es-0 /]$ 
+
+
+查询集群的健康状态（一共三种状态：green、yellow，red；其中green表示健康）
+下面两个命令都可以
+[elasticsearch@es-0 /]$ curl -XGET 'http://es-svc.wiseco.svc.cluster.local:9200/_cat/health?v'
+epoch      timestamp cluster    status node.total node.data shards pri relo init unassign pending_tasks max_task_wait_time active_shards_percent
+1641457108 08:18:28  es-cluster green           3         3      0   0    0    0        0             0                  -                100.0%
+[elasticsearch@es-0 /]$ curl -XGET 'http://es-svc.wiseco.svc.cluster.local:9200/_cluster/health?pretty'
+{
+  "cluster_name" : "es-cluster",
+  "status" : "green",
+  "timed_out" : false,
+  "number_of_nodes" : 3,
+  "number_of_data_nodes" : 3,
+  "active_primary_shards" : 0,
+  "active_shards" : 0,
+  "relocating_shards" : 0,
+  "initializing_shards" : 0,
+  "unassigned_shards" : 0,
+  "delayed_unassigned_shards" : 0,
+  "number_of_pending_tasks" : 0,
+  "number_of_in_flight_fetch" : 0,
+  "task_max_waiting_in_queue_millis" : 0,
+  "active_shards_percent_as_number" : 100.0
+}
+[elasticsearch@es-0 /]$ 
+
+
+######允许 master 节点运行 pod
+[root@master-1 elasticsearch]# kubectl describe node|grep -E "Name:|Taints:"
+Name:               master-1
+Taints:             node-role.kubernetes.io/master:NoSchedule
+Name:               node-1
+Taints:             <none>
+Name:               node-2
+Taints:             <none>
+[root@master-1 elasticsearch]# 
+
+去除 k8s-master1 节点不允许配置的 label
+[root@master-1 elasticsearch]# kubectl taint node master-1 node-role.kubernetes.io/master-
+node/master-1 untainted
+
+
+[root@master-1 elasticsearch]# kubectl describe node|grep -E "Name:|Taints:"              
+Name:               master-1
+Taints:             <none>
+Name:               node-1
+Taints:             <none>
+Name:               node-2
+Taints:             <none>
+[root@master-1 elasticsearch]# 
+
+
+重新设置 master 节点不允许调度 pod
+[root@master-1 elasticsearch]# kubectl taint node k8s-master1 node-role.kubernetes.io/master=:NoSchedule
+污点可选参数
+
+NoSchedule: 一定不能被调度
+PreferNoSchedule: 尽量不要调度
+NoExecute: 不仅不会调度, 还会驱逐Node上已有的Pod
+######允许 master 节点运行 pod
+
+
