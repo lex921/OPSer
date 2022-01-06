@@ -280,3 +280,40 @@ master-1   Ready    master   3h12m   v1.19.9   beta.kubernetes.io/arch=amd64,bet
 node-1     Ready    worker   177m    v1.19.9   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=node-1,kubernetes.io/os=linux,node-role.kubernetes.io/worker=worker,roles=node1
 node-2     Ready    worker   177m    v1.19.9   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,kubernetes.io/arch=amd64,kubernetes.io/hostname=node-2,kubernetes.io/os=linux,node-role.kubernetes.io/worker=worker,roles=node2
 [root@master-1 images]# 
+
+
+
+######允许 master 节点运行 pod
+[root@master-1 elasticsearch]# kubectl describe node|grep -E "Name:|Taints:"
+Name:               master-1
+Taints:             node-role.kubernetes.io/master:NoSchedule
+Name:               node-1
+Taints:             <none>
+Name:               node-2
+Taints:             <none>
+[root@master-1 elasticsearch]# 
+
+去除 k8s-master1 节点不允许配置的 label
+[root@master-1 elasticsearch]# kubectl taint node master-1 node-role.kubernetes.io/master-
+node/master-1 untainted
+
+
+[root@master-1 elasticsearch]# kubectl describe node|grep -E "Name:|Taints:"              
+Name:               master-1
+Taints:             <none>
+Name:               node-1
+Taints:             <none>
+Name:               node-2
+Taints:             <none>
+[root@master-1 elasticsearch]# 
+
+
+重新设置 master 节点不允许调度 pod
+[root@master-1 elasticsearch]# kubectl taint node k8s-master1 node-role.kubernetes.io/master=:NoSchedule
+污点可选参数
+
+NoSchedule: 一定不能被调度
+PreferNoSchedule: 尽量不要调度
+NoExecute: 不仅不会调度, 还会驱逐Node上已有的Pod
+######允许 master 节点运行 pod
+
