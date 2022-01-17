@@ -1,0 +1,26 @@
+GNU/Linux安装：
+使用以下命令在运行 64 位 Intel/AMD 架构的 Linux 主机上运行独立的 MinIO 服务器。将/data 替换为您希望 MinIO 存储数据的驱动器或目录的路径。
+
+wget http://dl.minio.org.cn/server/minio/release/linux-amd64/minio
+chmod +x minio
+./minio server /data
+将/data 替换为您希望 MinIO 存储数据的驱动器或目录的路径。
+
+下表列出了支持的架构。 将 wget URL 替换为您的 Linux 主机的架构。
+
+Architecture	URL
+64-bit Intel/AMD
+http://dl.minio.org.cn/server/minio/release/linux-amd64/minio
+
+64-bit ARM
+http://dl.minio.org.cn/server/minio/release/linux-arm64/minio
+
+64-bit PowerPC LE (ppc64le)	
+http://dl.minio.org.cn/server/minio/release/linux-ppc64le/minio
+
+IBM Z-Series (S390X)	
+http://dl.minio.org.cn/server/minio/release/linux-s390x/minio
+
+
+MinIO 部署开始使用默认的 root 凭据 minioadmin:minioadmin。您可以使用 MinIO 控制台测试部署，这是一个内置在 MinIO 服务器中的基于 Web 的嵌入式对象浏览器。
+将主机上运行的 Web 浏览器指向 http://127.0.0.1:9000 并使用 root 凭据登录。您可以使用浏览器来创建桶、上传对象以及浏览 MinIO 服务器的内容。
