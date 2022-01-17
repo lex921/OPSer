@@ -135,14 +135,11 @@ pod/minio-3   1/1     Running   0          59s   10.244.1.7   node-1     <none> 
 
 
 
-[root@master-1 minio]# kubectl exec -it pod/minio-0 -n minio -- /bin/bash
-[root@minio-0 /]# ls
-
-
 ##3、测试
 访问pod：
 [root@master-1 minio]# kubectl exec -it pod/minio-0 -n minio -- /bin/bash
 [root@minio-0 /]# ls
+bin  boot  data  dev  etc  export  home  lib  lib64  licenses  lost+found  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
 
 
 数据的增、删、改、查：
