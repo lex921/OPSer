@@ -1,4 +1,4 @@
-#k8s helm安装minio8.0.10
+#k8s helm安装minio8.0.10（单点和集群）
 
 #一、安装单个节点
 下载包：
@@ -137,3 +137,15 @@ pod/minio-3   1/1     Running   0          59s   10.244.1.7   node-1     <none> 
 
 [root@master-1 minio]# kubectl exec -it pod/minio-0 -n minio -- /bin/bash
 [root@minio-0 /]# ls
+
+
+##3、测试
+访问pod：
+[root@master-1 minio]# kubectl exec -it pod/minio-0 -n minio -- /bin/bash
+[root@minio-0 /]# ls
+
+
+数据的增、删、改、查：
+在http://172.16.201.135:32000/minio/ 建立文件夹，上传文件
+在http://172.16.201.134:32000/minio/222/直接可以访问此文件
+
