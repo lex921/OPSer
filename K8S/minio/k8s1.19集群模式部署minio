@@ -1,0 +1,168 @@
+#k8s1.19集群模式部署minio
+
+[root@master-1 minio]#  docker pull minio/minio:RELEASE.2020-04-04T05-39-31Z
+RELEASE.2020-04-04T05-39-31Z: Pulling from minio/minio
+4167d3e14976: Pull complete 
+d8e54e98f659: Pull complete 
+fc2b70c6ea92: Pull complete 
+bb0f1055896c: Pull complete 
+Digest: sha256:8d6143a3d37e61eff23bc16efb9b2327bba0fb684bc5cae87cf555ff35b42a9d
+Status: Downloaded newer image for minio/minio:RELEASE.2020-04-04T05-39-31Z
+docker.io/minio/minio:RELEASE.2020-04-04T05-39-31Z
+
+[root@node-1 ~]# docker pull minio/minio:RELEASE.2020-04-04T05-39-31Z
+RELEASE.2020-04-04T05-39-31Z: Pulling from minio/minio
+4167d3e14976: Pull complete 
+d8e54e98f659: Pull complete 
+fc2b70c6ea92: Pull complete 
+bb0f1055896c: Pull complete 
+Digest: sha256:8d6143a3d37e61eff23bc16efb9b2327bba0fb684bc5cae87cf555ff35b42a9d
+Status: Downloaded newer image for minio/minio:RELEASE.2020-04-04T05-39-31Z
+docker.io/minio/minio:RELEASE.2020-04-04T05-39-31Z
+[root@node-1 ~]# 
+
+
+[root@node-2 ~]#  docker pull minio/minio:RELEASE.2020-04-04T05-39-31Z
+RELEASE.2020-04-04T05-39-31Z: Pulling from minio/minio
+4167d3e14976: Pull complete 
+d8e54e98f659: Pull complete 
+fc2b70c6ea92: Pull complete 
+bb0f1055896c: Pull complete 
+Digest: sha256:8d6143a3d37e61eff23bc16efb9b2327bba0fb684bc5cae87cf555ff35b42a9d
+Status: Downloaded newer image for minio/minio:RELEASE.2020-04-04T05-39-31Z
+docker.io/minio/minio:RELEASE.2020-04-04T05-39-31Z
+[root@node-2 ~]# 
+
+
+[root@master-1 minio]# vim minio-distributed-daemonset.yaml
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: minio
+  labels:
+    app: minio
+spec:
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      nodeSelector:
+        minio-server: "true"
+      hostNetwork: true
+      volumes:
+      - name: storage
+        hostPath:
+          path: /mounts/minio1
+      containers:
+      - name: minio
+        env:
+        - name: MINIO_ACCESS_KEY
+          value: "minio"
+        - name: MINIO_SECRET_KEY
+          value: "minio123"
+        image: minio/minio:RELEASE.2020-04-04T05-39-31Z
+        args:
+        - server
+        - http://dev-learn-7{7...9}/mnt/disk{1...2}/minio/minio1/data
+        ports:
+        - containerPort: 9000
+        volumeMounts:
+        - name: storage
+          mountPath: /mounts/minio1/
+
+
+[root@master-1 minio]# vim minio-distributed-headless-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  labels:
+    app: minio
+spec:
+  publishNotReadyAddresses: true
+  clusterIP: None
+  ports:
+    - port: 9000
+      name: minio
+  selector:
+    app: minio
+
+
+
+注意：集群模式的minio至少需要四块硬盘，否则是无法启动的，所以，这里：
+- http://dev-learn-7{7...9}/mnt/disk{1...3}/minio/minio1/data
+总数必须超过4个， 我这里是6块硬盘。
+
+磁盘挂载方式我选择将/mnt/disk1-2/minio/minio1/data/以bind的方式挂载到/mounts/minio1/mnt/disk1-2/minio/minio1/data/下，从而方便将主机的文件系统映射到container里。每个节点都执行
+
+
+[root@dev-learn-77 ~]# mkdir -p  /mounts/minio1/mnt/disk1/minio/minio1/data 
+[root@dev-learn-77 ~]# mkdir -p  /mounts/minio1/mnt/disk2/minio/minio1/data 
+[root@dev-learn-77 ~]# 
+[root@dev-learn-77 ~]# mkdir -p  /mnt/disk1/minio/minio1/data/
+[root@dev-learn-77 ~]# mkdir -p  /mnt/disk2/minio/minio1/data/
+[root@dev-learn-77 ~]# 
+[root@dev-learn-77 ~]# mount --bind /mnt/disk1/minio/minio1/data/ /mounts/minio1/mnt/disk1/minio/minio1/data/
+[root@dev-learn-77 ~]# mount --bind /mnt/disk2/minio/minio1/data/ /mounts/minio1/mnt/disk2/minio/minio1/data/
+[root@dev-learn-77 ~]# 
+
+
+
+echo "/mnt/disk1/minio/minio1/data    /mounts/minio1/mnt/disk1/minio/minio1/data    none    bind    0    0">>/etc/fstab
+echo "/mnt/disk2/minio/minio1/data    /mounts/minio1/mnt/disk2/minio/minio1/data    none    bind    0    0">>/etc/fstab
+
+echo "/mnt/disk1/minio/minio1/data    /mounts/minio1/mnt/disk1/minio/minio1/data    none    bind    0    0">>/etc/fstab
+echo "/mnt/disk2/minio/minio1/data    /mounts/minio1/mnt/disk2/minio/minio1/data    none    bind    0    0">>/etc/fstab
+
+创建minio集群
+[root@master-1 minio]# kubectl label node master-1 minio-server=true
+node/master-1 labeled
+[root@master-1 minio]# kubectl label node node-1 minio-server=true
+node/node-1 labeled
+[root@master-1 minio]# kubectl label node node-2 minio-server=true
+node/node-2 labeled
+[root@master-1 minio]# 
+
+kubectl delete -f minio-distributed-headless-service.yaml 
+[root@master-1 minio]# kubectl create -f minio-distributed-headless-service.yaml 
+service/minio created
+[root@master-1 minio]#  kubectl create -f minio-distributed-daemonset.yaml 
+daemonset.apps/minio created
+
+[root@master-1 minio]# kubectl get service
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)    AGE
+kubernetes   ClusterIP   10.1.0.1     <none>        443/TCP    63m
+minio        ClusterIP   None         <none>        9000/TCP   13s
+
+[root@master-1 minio]# kubectl get daemonset
+NAME    DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR       AGE
+minio   2         2         2       2            2           minio-server=true   14s
+
+
+[root@master-1 minio]#  kubectl get pod -o wide
+NAME          READY   STATUS    RESTARTS   AGE   IP               NODE     NOMINATED NODE   READINESS GATES
+minio-lxldf   1/1     Running   0          25s   172.16.201.135   node-1   <none>           <none>
+minio-qtc8k   1/1     Running   0          25s   172.16.201.136   node-2   <none>           <none>
+[root@master-1 minio]# 
+
+
+但是发现只有78和79参与了调度，77master节点并没有pod的启动。
+因为出于安全考虑，k8s默认禁止master参与调度普通pod
+执行如下命令解除限制：
+[root@master-1 minio]# kubectl taint node master-1 node-role.kubernetes.io/master-
+node/master-1 untainted
+[root@master-1 minio]#  kubectl get pod -o wide
+NAME          READY   STATUS    RESTARTS   AGE   IP               NODE       NOMINATED NODE   READINESS GATES
+minio-4pdc2   1/1     Running   0          6s    172.16.201.134   master-1   <none>           <none>
+minio-lxldf   1/1     Running   0          58s   172.16.201.135   node-1     <none>           <none>
+minio-qtc8k   1/1     Running   0          58s   172.16.201.136   node-2     <none>           <none>
+[root@master-1 minio]# 
+
+然后浏览器输入三个节点中任意一个ip:9000，即可访问:
+用户名密码是daemonset中设置的minio/minio123
+
