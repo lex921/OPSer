@@ -1,0 +1,139 @@
+#k8s helm安装minio8.0.10
+
+#一、安装单个节点
+下载包：
+[root@master-1 minio]# helm repo add minio https://helm.min.io/
+[root@master-1 minio]# helm fetch minio/minio
+[root@master-1 minio]# tar zxvf minio-8.0.10.tgz;cd minio
+[root@master-1 minio]# vim values.yaml
+resources:
+  requests:
+    memory: 256Mi
+
+##1、安装
+[root@master-1 minio]# helm install minio --namespace minio --create-namespace --set accessKey=minio,secretKey=minio123 --set mode=standalone --set service.type=NodePort --set persistence.enabled=false --set persistence.size=10Gi -f ./values.yaml  minio/minio
+NAME: minio
+LAST DEPLOYED: Mon Jan 17 17:57:36 2022
+NAMESPACE: minio
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+Minio can be accessed via port 9000 on the following DNS name from within your cluster:
+minio.minio.svc.cluster.local
+
+To access Minio from localhost, run the below commands:
+
+  1. export POD_NAME=$(kubectl get pods --namespace minio -l "release=minio" -o jsonpath="{.items[0].metadata.name}")
+
+  2. kubectl port-forward $POD_NAME 9000 --namespace minio
+
+Read more about port forwarding here: http://kubernetes.io/docs/user-guide/kubectl/kubectl_port-forward/
+
+You can now access Minio server on http://localhost:9000. Follow the below steps to connect to Minio server with mc client:
+
+  1. Download the Minio mc client - https://docs.minio.io/docs/minio-client-quickstart-guide
+
+  2. Get the ACCESS_KEY=$(kubectl get secret minio -o jsonpath="{.data.accesskey}" | base64 --decode) and the SECRET_KEY=$(kubectl get secret minio -o jsonpath="{.data.secretkey}" | base64 --decode)
+
+  3. mc alias set minio-local http://localhost:9000 "$ACCESS_KEY" "$SECRET_KEY" --api s3v4
+
+  4. mc ls minio-local
+
+Alternately, you can use your browser or the Minio SDK to access the server - https://docs.minio.io/categories/17
+[root@master-1 minio]# 
+
+
+
+[root@master-1 minio]# kubectl  -n minio get deployment,svc,pod -o wide
+NAME                    READY   UP-TO-DATE   AVAILABLE   AGE     CONTAINERS   IMAGES                                     SELECTOR
+deployment.apps/minio   1/1     1            1           2m30s   minio        minio/minio:RELEASE.2021-02-14T04-01-33Z   app=minio,release=minio
+
+NAME            TYPE       CLUSTER-IP    EXTERNAL-IP   PORT(S)          AGE     SELECTOR
+service/minio   NodePort   10.1.236.67   <none>        9000:32000/TCP   2m30s   app=minio,release=minio
+
+NAME                        READY   STATUS    RESTARTS   AGE     IP           NODE     NOMINATED NODE   READINESS GATES
+pod/minio-f9df88b99-dhfh5   1/1     Running   0          2m29s   10.244.1.5   node-1   <none>           <none>
+[root@master-1 minio]# 
+
+
+##2、访问
+用户名/密码：minio/minio123
+10.244.1.5   node-1  32000
+http://172.16.201.135:32000/minio/login
+
+
+##3、卸载：
+[root@master-1 minio]# helm delete minio --namespace minio
+release "minio" uninstalled
+
+[root@master-1 minio]# kubectl  -n minio get deployment,svc,pod -o wide
+No resources found in minio namespace.
+
+#二、安装 minio 集群
+下载包：
+[root@master-1 minio]# helm repo add minio https://helm.min.io/
+[root@master-1 minio]# helm fetch minio/minio
+[root@master-1 minio]# tar zxvf minio-8.0.10.tgz;cd minio
+[root@master-1 minio]# vim values.yaml
+resources:
+  requests:
+    memory: 256Mi
+
+
+4. 部署实例
+[root@master-1 minio]# helm install minio --namespace minio --create-namespace --set accessKey=minio,secretKey=minio123 --set mode=distributed --set replicas=4 --set service.type=NodePort --set persistence.enabled=false --set persistence.size=10Gi -f ./values.yaml minio/minio
+NAME: minio
+LAST DEPLOYED: Mon Jan 17 18:08:17 2022
+NAMESPACE: minio
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+Minio can be accessed via port 9000 on the following DNS name from within your cluster:
+minio.minio.svc.cluster.local
+
+To access Minio from localhost, run the below commands:
+
+  1. export POD_NAME=$(kubectl get pods --namespace minio -l "release=minio" -o jsonpath="{.items[0].metadata.name}")
+
+  2. kubectl port-forward $POD_NAME 9000 --namespace minio
+
+Read more about port forwarding here: http://kubernetes.io/docs/user-guide/kubectl/kubectl_port-forward/
+
+You can now access Minio server on http://localhost:9000. Follow the below steps to connect to Minio server with mc client:
+
+  1. Download the Minio mc client - https://docs.minio.io/docs/minio-client-quickstart-guide
+
+  2. Get the ACCESS_KEY=$(kubectl get secret minio -o jsonpath="{.data.accesskey}" | base64 --decode) and the SECRET_KEY=$(kubectl get secret minio -o jsonpath="{.data.secretkey}" | base64 --decode)
+
+  3. mc alias set minio-local http://localhost:9000 "$ACCESS_KEY" "$SECRET_KEY" --api s3v4
+
+  4. mc ls minio-local
+
+Alternately, you can use your browser or the Minio SDK to access the server - https://docs.minio.io/categories/17
+[root@master-1 minio]# 
+
+[root@master-1 minio]# kubectl  -n minio get statefulset,svc,endpoints,pod -o wide
+NAME                     READY   AGE   CONTAINERS   IMAGES
+statefulset.apps/minio   4/4     59s   minio        minio/minio:RELEASE.2021-02-14T04-01-33Z
+
+NAME                TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)          AGE   SELECTOR
+service/minio       NodePort    10.1.68.126   <none>        9000:32000/TCP   59s   app=minio,release=minio
+service/minio-svc   ClusterIP   None          <none>        9000/TCP         59s   app=minio,release=minio
+
+NAME                  ENDPOINTS                                                     AGE
+endpoints/minio       10.244.0.2:9000,10.244.1.6:9000,10.244.1.7:9000 + 1 more...   59s
+endpoints/minio-svc   10.244.0.2:9000,10.244.1.6:9000,10.244.1.7:9000 + 1 more...   59s
+
+NAME          READY   STATUS    RESTARTS   AGE   IP           NODE       NOMINATED NODE   READINESS GATES
+pod/minio-0   1/1     Running   0          59s   10.244.1.6   node-1     <none>           <none>
+pod/minio-1   1/1     Running   0          59s   10.244.2.6   node-2     <none>           <none>
+pod/minio-2   1/1     Running   0          59s   10.244.0.2   master-1   <none>           <none>
+pod/minio-3   1/1     Running   0          59s   10.244.1.7   node-1     <none>           <none>
+[root@master-1 minio]# 
+
+
+
+[root@master-1 minio]# kubectl exec -it pod/minio-0 -n minio -- /bin/bash
+[root@minio-0 /]# ls
