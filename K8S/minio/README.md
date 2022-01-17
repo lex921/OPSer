@@ -1,8 +1,8 @@
 
-## Minio-server
+## Minio-Server
 https://docs.min.io/
 
-## Minio-client
+## Minio-Client
 http://docs.minio.org.cn/docs/master/minio-client-quickstart-guide
 
 ## Minio-Admin
