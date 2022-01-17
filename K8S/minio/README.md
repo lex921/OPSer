@@ -1,6 +1,6 @@
 
 ## Minio-Server
-https://docs.min.io/
+http://docs.minio.org.cn/docs/master/deploy-minio-on-kubernetes
 
 ## Minio-Client
 http://docs.minio.org.cn/docs/master/minio-client-quickstart-guide
