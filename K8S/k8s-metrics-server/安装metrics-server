@@ -1,0 +1,173 @@
+###7、安装metrics-server（下载指定版本，不能下最新的）
+
+####Kubernetes Metrics Server：
+
+Kubernetes Metrics Server 是 Cluster 的核心监控数据的聚合器，kubeadm 默认是不部署的。
+
+Metrics Server 供 Dashboard 等其他组件使用，是一个扩展的 APIServer，依赖于 API Aggregator。所以，在安装 Metrics Server 之前需要先在 kube-apiserver 中开启 API Aggregator。
+Metrics API 只可以查询当前的度量数据，并不保存历史数据。
+Metrics API URI 为 /apis/metrics.k8s.io/，在 k8s.io/metrics 下维护。
+必须部署 metrics-server 才能使用该 API，metrics-server 通过调用 kubelet Summary API 获取数据。
+
+####前提条件
+
+注意：使用 Metrics Server 有必备两个条件：
+
+1、API Server 启用 Aggregator Routing 支持。否则 API Server 不识别请求：
+
+Error from server (ServiceUnavailable): the server is currently unable to handle the request (get pods.metrics.k8s.io)
+2、API Server 能访问 Metrics Server Pod IP。否则 API Server 无法访问 Metrics Server：
+
+E1223 07:23:04.330206       1 available_controller.go:420] v1beta1.metrics.k8s.io failed with: failing or missing response from https://10.171.248.214:4443/apis/metrics.k8s.io/v1beta1: Get https://10.171.248.214:4443/apis/metrics.k8s.io/v1beta1: net/http: request canceled while waiting for connection (Client.Timeout exceeded while awaiting headers)
+
+3、启用API Aggregator，API Aggregation 允许在不修改 Kubernetes 核心代码的同时扩展 Kubernetes API，即：将第三方服务注册到 Kubernetes API 中，这样就可以通过 Kubernetes API 来访问第三方服务了，例如：Metrics Server API。注：另外一种扩展 Kubernetes API 的方法是使用 CRD（Custom Resource Definition，自定义资源定义）。
+
+
+###安装：
+####1、修改每个 API Server 的 kube-apiserver.yaml 配置开启 Aggregator Routing：
+####修改 manifests 配置后 API Server 会自动重启生效。
+[root@master-1 prometheus]# vim /etc/kubernetes/manifests/kube-apiserver.yaml
+    - --secure-port=6443
+    - --service-account-key-file=/etc/kubernetes/pki/sa.pub
+    - --service-cluster-ip-range=10.1.0.0/16
+    - --tls-cert-file=/etc/kubernetes/pki/apiserver.crt
+    - --tls-private-key-file=/etc/kubernetes/pki/apiserver.key
+    - --enable-aggregator-routing=true # 添加本行
+
+[root@master-1 base]# systemctl restart kubelet
+[root@master-1 base]# kubectl apply -f /etc/kubernetes/manifests/kube-apiserver.yaml
+######不行执行2次，最好重启kubelet
+
+####2、下载：
+[root@master-1 prometheus]# wget https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.4.1/components.yaml
+
+####3、修改：
+[root@master-1 prometheus]# vim components.yaml
+        - --kubelet-preferred-address-types=InternalIP   # 删掉 ExternalIP,Hostname这两个，这里已经改好了，你那边要自己核对一下
+        - --kubelet-use-node-status-port
+        - --kubelet-insecure-tls                    #   加上该启动参数
+        image: k8s.gcr.io/metrics-server/metrics-server:v0.4.1                 # 镜像地址根据情况修改
+
+####4、执行安装：
+[root@master-1 base]# kubectl delete -f components.yaml
+[root@master-1 base]# kubectl apply -f components.yaml
+
+[root@master-1 prometheus]# kubectl apply -f components.yaml
+serviceaccount/metrics-server created
+clusterrole.rbac.authorization.k8s.io/system:aggregated-metrics-reader created
+clusterrole.rbac.authorization.k8s.io/system:metrics-server created
+rolebinding.rbac.authorization.k8s.io/metrics-server-auth-reader created
+clusterrolebinding.rbac.authorization.k8s.io/metrics-server:system:auth-delegator created
+clusterrolebinding.rbac.authorization.k8s.io/system:metrics-server created
+service/metrics-server created
+deployment.apps/metrics-server created
+apiservice.apiregistration.k8s.io/v1beta1.metrics.k8s.io created
+
+####5、查看pod：
+[root@master-1 prometheus]# kubectl get pod -n kube-system | grep metrics-server
+metrics-server-bfcc967d6-b7s8z     0/1     ContainerCreating   0          7s
+[root@master-1 prometheus]# 
+[root@master-1 prometheus]# kubectl get pod -n kube-system | grep metrics-server
+metrics-server-bfcc967d6-b7s8z     1/1     Running   0          75s
+
+####6、查看具体信息：
+[root@master-1 prometheus]# kubectl describe svc metrics-server -n kube-system
+Name:              metrics-server
+Namespace:         kube-system
+Labels:            k8s-app=metrics-server
+Annotations:       <none>
+Selector:          k8s-app=metrics-server
+Type:              ClusterIP
+IP:                10.1.21.56
+Port:              https  443/TCP
+TargetPort:        https/TCP
+Endpoints:         10.244.1.24:4443
+Session Affinity:  None
+Events:            <none>
+
+####7、测试网络：
+[root@master-1 prometheus]# ping 10.244.1.24
+PING 10.244.1.24 (10.244.1.24) 56(84) bytes of data.
+64 bytes from 10.244.1.24: icmp_seq=1 ttl=63 time=0.693 ms
+64 bytes from 10.244.1.24: icmp_seq=2 ttl=63 time=0.693 ms
+64 bytes from 10.244.1.24: icmp_seq=3 ttl=63 time=0.868 ms
+
+####8、测试命令：
+[root@master-1 prometheus]#  kubectl top nodes
+NAME       CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%   
+master-1   294m         14%    1337Mi          36%       
+node-1     1317m        65%    1432Mi          83%       
+node-2     192m         9%     1189Mi          69%       
+[root@master-1 prometheus]# 
+
+
+[root@master-1 prometheus]#  kubectl top pods
+NAME                           CPU(cores)   MEMORY(bytes)   
+test-centos-6ccff47f57-vhtvc   0m           5Mi  
+
+[root@master-1 prometheus]# kubectl top pod --all-namespaces
+NAMESPACE     NAME                                   CPU(cores)   MEMORY(bytes)   
+default       test-centos-6ccff47f57-vhtvc           0m           5Mi             
+kube-system   coredns-6d56c8448f-7c4dp               4m           16Mi            
+kube-system   coredns-6d56c8448f-pm6r6               4m           16Mi            
+kube-system   etcd-master-1                          34m          96Mi            
+kube-system   kube-apiserver-master-1                97m          455Mi           
+kube-system   kube-controller-manager-master-1       20m          58Mi            
+kube-system   kube-flannel-ds-cvmdw                  10m          18Mi            
+kube-system   kube-flannel-ds-gcckr                  5m           32Mi            
+kube-system   kube-flannel-ds-nkl2p                  3m           31Mi            
+kube-system   kube-proxy-fkj8w                       1m           30Mi            
+kube-system   kube-proxy-glbfj                       1m           17Mi            
+kube-system   kube-proxy-pxfg7                       10m          16Mi            
+kube-system   kube-scheduler-master-1                5m           25Mi            
+kube-system   metrics-server-bfcc967d6-b7s8z         31m          15Mi            
+monitoring    alertmanager-main-0                    27m          22Mi            
+monitoring    alertmanager-main-1                    5m           28Mi            
+monitoring    alertmanager-main-2                    19m          22Mi            
+monitoring    grafana-f8cd57fcf-pz56g                10m          52Mi            
+monitoring    kube-state-metrics-58c88f48b7-5bqrj    3m           43Mi            
+monitoring    node-exporter-5hzp8                    6m           38Mi            
+monitoring    node-exporter-k2cmg                    21m          17Mi            
+monitoring    node-exporter-qtph2                    6m           21Mi            
+monitoring    prometheus-adapter-69b8496df6-6lcbj    9m           23Mi            
+monitoring    prometheus-k8s-0                       126m         308Mi           
+monitoring    prometheus-k8s-1                       18m          340Mi           
+monitoring    prometheus-operator-66bd8d7bd7-hdq2p   3m           48Mi            
+[root@master-1 prometheus]# 
+
+
+
+[root@master-1 base]# kubectl top nodes
+NAME       CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%   
+master-1   303m         15%    1719Mi          46%       
+node-1     164m         8%     1651Mi          96%       
+node-2     209m         10%    1310Mi          76%    
+
+
+[root@master-1 base]# kubectl top pods -n monitoring
+NAME                                   CPU(cores)   MEMORY(bytes)   
+alertmanager-main-0                    7m           21Mi            
+alertmanager-main-1                    4m           23Mi            
+alertmanager-main-2                    5m           19Mi            
+grafana-f8cd57fcf-pz56g                10m          43Mi            
+kube-state-metrics-58c88f48b7-5bqrj    1m           40Mi            
+node-exporter-5hzp8                    8m           14Mi            
+node-exporter-k2cmg                    6m           25Mi            
+node-exporter-qtph2                    8m           18Mi            
+prometheus-adapter-69b8496df6-6lcbj    7m           23Mi            
+prometheus-k8s-0                       41m          273Mi           
+prometheus-k8s-1                       17m          277Mi           
+prometheus-operator-66bd8d7bd7-hdq2p   10m          42Mi      
+
+
+[root@master-1 prometheus]# kubectl  get endpoints -n kube-system 
+NAME                      ENDPOINTS                                                                    AGE
+kube-controller-manager   <none>                                                                       6d23h
+kube-dns                  10.244.0.13:53,10.244.0.14:53,10.244.0.13:53 + 3 more...                     6d23h
+kube-scheduler            <none>                                                                       6d23h
+kubelet                   172.16.201.134:10250,172.16.201.135:10250,172.16.201.136:10250 + 6 more...   22h
+metrics-server            10.244.1.24:4443                                                             7m51s
+
+
+[root@master-1 prometheus]# kubectl get apiservices |egrep metrics
+v1beta1.metrics.k8s.io                 kube-system/metrics-server   True        8m15s
