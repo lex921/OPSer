@@ -146,3 +146,111 @@ bin  boot  data  dev  etc  export  home  lib  lib64  licenses  lost+found  media
 在http://172.16.201.135:32000/minio/ 建立文件夹，上传文件
 在http://172.16.201.134:32000/minio/222/直接可以访问此文件
 
+##4、MinIO客户端:
+MinIO Client (mc)为ls，cat，cp，mirror，diff，find等UNIX命令提供了一种替代方案。它支持文件系统和兼容Amazon S3的云存储服务（AWS Signature v2和v4）。
+ls       列出文件和文件夹。
+mb       创建一个存储桶或一个文件夹。
+cat      显示文件和对象内容。
+pipe     将一个STDIN重定向到一个对象或者文件或者STDOUT。
+share    生成用于共享的URL。
+cp       拷贝文件和对象。
+mirror   给存储桶和文件夹做镜像。
+find     基于参数查找文件。
+diff     对两个文件夹或者存储桶比较差异。
+rm       删除文件和对象。
+events   管理对象通知。
+watch    监听文件和对象的事件。
+policy   管理访问策略。
+session  为cp命令管理保存的会话。
+config   管理mc配置文件。
+update   检查软件更新。
+version  输出版本信息。
+
+
+下载客户端：
+[root@master-1 minio]# wget https://dl.min.io/client/mc/release/linux-amd64/mc
+[root@master-1 minio]# mc -v
+mc version RELEASE.2022-01-07T06-01-38Z
+
+[root@master-1 minio]# mc ls local
+mc: <ERROR> Unable to list folder. Get "http://localhost:9000/": dial tcp [::1]:9000: connect: connection refused
+[root@master-1 minio]# 
+
+[root@master-1 minio]# mc alias set local http://172.16.201.134:32000 minio minio123
+Added `local` successfully.
+
+[root@master-1 minio]# mc ls local
+[2022-01-17 18:10:42 CST]     0B 222/
+[2022-01-17 18:19:21 CST]     0B 333/
+
+跟http://172.16.201.135:32000/minio/ 下目录对应，证明数据没有问题。
+
+##5、查看集群信息
+[root@master-1 minio]# mc admin info local 
+●  minio-0.minio-svc.minio.svc.cluster.local:9000
+   Uptime: 24 minutes 
+   Version: 2021-02-14T04:01:33Z
+   Network: 4/4 OK 
+   Drives: 1/1 OK 
+
+●  minio-1.minio-svc.minio.svc.cluster.local:9000
+   Uptime: 23 minutes 
+   Version: 2021-02-14T04:01:33Z
+   Network: 4/4 OK 
+   Drives: 1/1 OK 
+
+●  minio-2.minio-svc.minio.svc.cluster.local:9000
+   Uptime: 23 minutes 
+   Version: 2021-02-14T04:01:33Z
+   Network: 4/4 OK 
+   Drives: 1/1 OK 
+
+●  minio-3.minio-svc.minio.svc.cluster.local:9000
+   Uptime: 24 minutes 
+   Version: 2021-02-14T04:01:33Z
+   Network: 4/4 OK 
+   Drives: 1/1 OK 
+
+17 KiB Used, 2 Buckets, 1 Object
+4 drives online, 0 drives offline
+[root@master-1 minio]# 
+
+由此可见，已经部署了一个4节点的minio集群。
+
+
+
+##6、注意事项
+本文主要是用于测试，由此使用容器的临时存储，如果在生产上使用者需要指定动态存储类，可以使用 nfs、longhorn、ceph 等持久化存储。
+更多持久化存储见： k8s storage-classes
+笔者新建nfs-client 存储类后，通过nfs动态分配存储空间，从而实现了minio 的持久化存储。
+helm install minio \
+  --namespace minio --create-namespace \
+  --set accessKey=minio,secretKey=minio123 \
+  --set mode=distributed \
+  --set replicas=4 \
+  --set service.type=NodePort \
+  --set persistence.enabled=true \
+  --set persistence.size=500Mi \
+  --set persistence.storageClass=nfs-client \ 
+  minio-8.0.10/minio
+
+存储路径如下：
+/data/nfs$ ls
+minio-export-minio-0-pvc-6878e732-f577-491e-8545-ba69dc5471f4
+minio-export-minio-1-pvc-90fc0d1d-cab5-40e1-bb68-45ec1362d233
+minio-export-minio-2-pvc-8e527781-7f45-47b5-b5c4-62ce4a666f08
+minio-export-minio-3-pvc-5374587c-d38c-4006-abc3-5ab2aa41fbec
+test-nfs
+
+##7、说明
+软件环境
+k8s 版本： 1.19.9
+helm chart 版本： minio/minio:minio-8.0.10
+minio镜像版本：minio/minio:RELEASE.2021-02-14T04-01-33Z
+
+##8、参考文档:
+https://docs.min.io/
+https://blog.csdn.net/u011127242/article/details/119768901
+https://blog.csdn.net/weixin_42914965/article/details/106035429
+https://blog.csdn.net/networken/article/details/111469223
+https://blog.csdn.net/weixin_42660934/article/details/107833794
