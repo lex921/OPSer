@@ -8,7 +8,7 @@
 [root@master-1 minio]# vim values.yaml
 resources:
   requests:
-    memory: 256Mi
+    memory: 512Mi
 
 ##1、安装
 [root@master-1 minio]# helm install minio --namespace minio --create-namespace --set accessKey=minio,secretKey=minio123 --set mode=standalone --set service.type=NodePort --set persistence.enabled=false --set persistence.size=10Gi -f ./values.yaml  minio/minio
