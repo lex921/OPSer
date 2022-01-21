@@ -33,4 +33,4 @@ Longhorn is 100% open source software. Project source code is spread across a nu
 | Longhorn Share Manager         | NFS provisioner that exposes Longhorn volumes as ReadWriteMany volumes | [longhorn/longhorn-share-manager](https://github.com/longhorn/longhorn-share-manager)       |
 | Longhorn UI                    | The Longhorn dashboard                                                 | [longhorn/longhorn-ui](https://github.com/longhorn/longhorn-ui)                             |
 
-![Longhorn UI](./longhorn-ui.png)
+![Longhorn UI](https://github.com/lex921/longhorn/blob/master/longhorn-ui.png)
