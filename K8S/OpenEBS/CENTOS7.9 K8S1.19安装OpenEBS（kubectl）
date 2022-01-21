@@ -1,4 +1,4 @@
-## CENTOS7.9 K8S1.19安装OpenEBS（kubectl）
+## CENTOS7.9 K8S1.19安装OpenEBS1.8.0（kubectl）
 
 [root@master-1 ~]# kubectl apply -f https://openebs.github.io/charts/openebs-operator.yaml
 
