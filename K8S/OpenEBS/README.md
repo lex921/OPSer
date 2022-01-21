@@ -2,10 +2,10 @@
 # OpenEBS
 https://openebs.io
 
-## Doc:
+## Documentation:
 https://docs.openebs.io/docs/next/quickstart.html
+https://openebs.io/docs
 
 
-## GitHub
-
+## GitHub:
 https://github.com/openebs/openebs
