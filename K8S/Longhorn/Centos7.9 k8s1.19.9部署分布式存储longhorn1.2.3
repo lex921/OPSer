@@ -1,0 +1,227 @@
+
+Centos7.9 k8s1.19.9部署分布式存储longhorn1.2.3
+
+longhorn简介
+Longhorn是用于Kubernetes的轻量级，可靠且功能强大的分布式块存储系统。Longhorn是免费的开源软件，它最初是由Rancher Labs开发。
+
+
+[root@master-1 longhorn]# helm repo add longhorn https://charts.longhorn.io
+"longhorn" has been added to your repositories
+
+[root@master-1 longhorn]# helm repo update
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "longhorn" chart repository
+Update Complete. ⎈Happy Helming!⎈
+[root@master-1 longhorn]# 
+
+[root@master-1 longhorn]# helm install longhorn \
+   --namespace longhorn-system \
+   --create-namespace \
+   --version 1.2.3 \
+   --set image.csi.attacher.repository=willdockerhub/csi-attacher \
+   --set image.csi.provisioner.repository=willdockerhub/csi-provisioner \
+   --set image.csi.nodeDriverRegistrar.repository=willdockerhub/csi-node-driver-registrar \
+   --set image.csi.resizer.repository=willdockerhub/csi-resizer \
+   --set image.csi.snapshotter.repository=willdockerhub/csi-snapshotter \
+   --set defaultSettings.defaultDataPath="/var/lib/longhorn/" \
+   --set defaultSettings.defaultReplicaCount=3 \
+   --set service.ui.type=NodePort \
+   --set service.ui.nodePort=30890 \
+   longhorn/longhorn
+
+NAME: longhorn
+LAST DEPLOYED: Fri Jan 21 13:48:48 2022
+NAMESPACE: longhorn-system
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+Longhorn is now installed on the cluster!
+
+Please wait a few minutes for other Longhorn components such as CSI deployments, Engine Images, and Instance Managers to be initialized.
+
+Visit our documentation at https://longhorn.io/docs/
+[root@master-1 longhorn]# 
+
+
+[root@master-1 longhorn]# kubectl -n longhorn-system get pods
+NAME                                        READY   STATUS              RESTARTS   AGE
+csi-attacher-59cb9fb769-bxrth               0/1     ContainerCreating   0          94s
+csi-attacher-59cb9fb769-jb27v               0/1     ContainerCreating   0          94s
+csi-attacher-59cb9fb769-jwb5n               0/1     ContainerCreating   0          94s
+csi-provisioner-6d64fb7fd9-26mlw            0/1     ContainerCreating   0          94s
+csi-provisioner-6d64fb7fd9-rdwfm            0/1     ContainerCreating   0          94s
+csi-provisioner-6d64fb7fd9-zw8jg            0/1     ContainerCreating   0          94s
+csi-resizer-654cfbf865-hwdx5                0/1     ContainerCreating   0          93s
+csi-resizer-654cfbf865-r9wvj                0/1     ContainerCreating   0          93s
+csi-resizer-654cfbf865-wjjf8                0/1     ContainerCreating   0          93s
+csi-snapshotter-f6898b755-8vqrl             0/1     ContainerCreating   0          90s
+csi-snapshotter-f6898b755-gd8ls             0/1     ContainerCreating   0          90s
+csi-snapshotter-f6898b755-zj2jp             0/1     ContainerCreating   0          91s
+engine-image-ei-fa2dfbf0-c8zx6              0/1     ImagePullBackOff    0          110s
+engine-image-ei-fa2dfbf0-g4vs9              1/1     Running             0          110s
+engine-image-ei-fa2dfbf0-jc6bt              1/1     Running             0          110s
+instance-manager-e-166f423c                 0/1     ContainerCreating   0          101s
+instance-manager-e-1b77ccf0                 0/1     ImagePullBackOff    0          110s
+instance-manager-e-9bd6c86d                 0/1     ContainerCreating   0          106s
+instance-manager-r-34643787                 0/1     ImagePullBackOff    0          100s
+instance-manager-r-bd03a687                 0/1     ContainerCreating   0          105s
+instance-manager-r-c8cad574                 0/1     ImagePullBackOff    0          109s
+longhorn-csi-plugin-47xmm                   0/2     ContainerCreating   0          90s
+longhorn-csi-plugin-9xsm4                   0/2     ContainerCreating   0          90s
+longhorn-csi-plugin-hwp7z                   0/2     ContainerCreating   0          90s
+longhorn-driver-deployer-6985c9bc7f-vmvz5   1/1     Running             0          2m13s
+longhorn-manager-q8sll                      1/1     Running             1          2m13s
+longhorn-manager-qc5mr                      1/1     Running             0          2m14s
+longhorn-manager-rkjxt                      1/1     Running             1          2m13s
+longhorn-ui-6f547c964-94sg6                 1/1     Running             0          2m14s
+[root@master-1 longhorn]# 
+
+[root@master-1 longhorn]# kubectl -n longhorn-system get pods --watch
+NAME                                        READY   STATUS    RESTARTS   AGE
+csi-attacher-59cb9fb769-bxrth               1/1     Running   0          10m
+csi-attacher-59cb9fb769-jb27v               1/1     Running   0          10m
+csi-attacher-59cb9fb769-jwb5n               1/1     Running   0          10m
+csi-provisioner-6d64fb7fd9-26mlw            1/1     Running   0          10m
+csi-provisioner-6d64fb7fd9-rdwfm            1/1     Running   0          10m
+csi-provisioner-6d64fb7fd9-zw8jg            1/1     Running   0          10m
+csi-resizer-654cfbf865-hwdx5                1/1     Running   0          10m
+csi-resizer-654cfbf865-r9wvj                1/1     Running   0          10m
+csi-resizer-654cfbf865-wjjf8                1/1     Running   0          10m
+csi-snapshotter-f6898b755-8vqrl             1/1     Running   0          10m
+csi-snapshotter-f6898b755-gd8ls             1/1     Running   1          10m
+csi-snapshotter-f6898b755-zj2jp             1/1     Running   0          10m
+engine-image-ei-fa2dfbf0-c8zx6              1/1     Running   0          11m
+engine-image-ei-fa2dfbf0-g4vs9              1/1     Running   0          11m
+engine-image-ei-fa2dfbf0-jc6bt              1/1     Running   0          11m
+instance-manager-e-166f423c                 1/1     Running   0          10m
+instance-manager-e-1b77ccf0                 1/1     Running   0          11m
+instance-manager-e-9bd6c86d                 1/1     Running   0          11m
+instance-manager-r-34643787                 1/1     Running   0          10m
+instance-manager-r-bd03a687                 1/1     Running   0          10m
+instance-manager-r-c8cad574                 1/1     Running   0          11m
+longhorn-csi-plugin-47xmm                   2/2     Running   0          10m
+longhorn-csi-plugin-9xsm4                   2/2     Running   0          10m
+longhorn-csi-plugin-hwp7z                   2/2     Running   0          10m
+longhorn-driver-deployer-6985c9bc7f-vmvz5   1/1     Running   0          11m
+longhorn-manager-q8sll                      1/1     Running   1          11m
+longhorn-manager-qc5mr                      1/1     Running   0          11m
+longhorn-manager-rkjxt                      1/1     Running   1          11m
+longhorn-ui-6f547c964-94sg6                 1/1     Running   0          11m
+
+
+
+默认longhorn部署完成已创建一个名为longhorn的storageclass，可以直接使用。
+[root@master-1 longhorn]# kubectl get sc
+NAME                 PROVISIONER          RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+longhorn (default)   driver.longhorn.io   Delete          Immediate           true                   2m43s
+
+
+
+wget https://raw.githubusercontent.com/longhorn/longhorn/master/examples/pod_with_pvc.yaml
+创建示例pod，验证pvc及pv部署
+
+[root@master-1 longhorn]# cat pod_with_pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: longhorn-volv-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: volume-test
+  namespace: default
+spec:
+  restartPolicy: Always
+  containers:
+  - name: volume-test
+    image: nginx:stable-alpine
+    imagePullPolicy: IfNotPresent
+    livenessProbe:
+      exec:
+        command:
+          - ls
+          - /data/lost+found
+      initialDelaySeconds: 5
+      periodSeconds: 5
+    volumeMounts:
+    - name: volv
+      mountPath: /data
+    ports:
+    - containerPort: 80
+  volumes:
+  - name: volv
+    persistentVolumeClaim:
+      claimName: longhorn-volv-pvc
+[root@master-1 longhorn]# 
+[root@master-1 longhorn]# kubectl create -f pod_with_pvc.yaml
+persistentvolumeclaim/longhorn-volv-pvc created
+pod/volume-test created
+
+[root@master-1 longhorn]# kubectl get pods 
+NAME                     READY   STATUS    RESTARTS   AGE
+nginx-6799fc88d8-rq98n   1/1     Running   0          159m
+volume-test              1/1     Running   0          6m36s
+
+[root@master-1 longhorn]# kubectl get pods -o wide
+NAME                     READY   STATUS    RESTARTS   AGE     IP            NODE     NOMINATED NODE   READINESS GATES
+nginx-6799fc88d8-rq98n   1/1     Running   0          160m    10.244.2.2    node-2   <none>           <none>
+volume-test              1/1     Running   0          6m52s   10.244.2.17   node-2   <none>           <none>
+
+
+[root@master-1 longhorn]#  kubectl get pv,pvc
+NAME                                                        CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                       STORAGECLASS   REASON   AGE
+persistentvolume/pvc-a30e2468-c5f0-41e2-9096-92206d3f514e   2Gi        RWO            Delete           Bound    default/longhorn-volv-pvc   longhorn                45s
+
+NAME                                      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+persistentvolumeclaim/longhorn-volv-pvc   Bound    pvc-a30e2468-c5f0-41e2-9096-92206d3f514e   2Gi        RWO            longhorn       47s
+[root@master-1 longhorn]# 
+
+
+在pod所在节点查看创建的块设备
+
+[root@node02 ~]# lsblk | grep pods
+sdc               8:32   0    2G  0 disk /var/lib/kubelet/pods/cefcd0f5-cab6-4eaa-a58d-17e3c8fbe989/volumes/kubernetes.io~csi/pvc-19708d1d-7cef-4800-9a78-b58dabcebe15/mount
+
+
+访问Longhorn UI
+
+[root@master-1 longhorn]# kubectl -n longhorn-system get svc -l app=longhorn-ui
+NAME                TYPE       CLUSTER-IP    EXTERNAL-IP   PORT(S)        AGE
+longhorn-frontend   NodePort   10.1.159.77   <none>        80:30890/TCP   5m15s
+[root@master-1 longhorn]# 
+
+
+[root@master-1 longhorn]# kubectl -n longhorn-system get svc
+NAME                       TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE
+csi-attacher               ClusterIP   10.1.148.231   <none>        12345/TCP      17m
+csi-provisioner            ClusterIP   10.1.90.223    <none>        12345/TCP      17m
+csi-resizer                ClusterIP   10.1.149.229   <none>        12345/TCP      17m
+csi-snapshotter            ClusterIP   10.1.101.59    <none>        12345/TCP      17m
+longhorn-backend           ClusterIP   10.1.18.197    <none>        9500/TCP       18m
+longhorn-engine-manager    ClusterIP   None           <none>        <none>         18m
+longhorn-frontend          NodePort    10.1.159.77    <none>        80:30890/TCP   18m
+longhorn-replica-manager   ClusterIP   None           <none>        <none>         18m
+[root@master-1 longhorn]# 
+
+
+浏览器访问：
+http://172.16.201.134:30890/#/dashboard
+
+
+删除longhorn
+[root@master-1 longhorn]#helm -n longhorn-system uninstall longhorn
+[root@master-1 longhorn]#kubectl delete ns longhorn-system
+
+
+
+
