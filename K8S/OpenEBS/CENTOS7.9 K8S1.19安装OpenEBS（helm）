@@ -1,4 +1,4 @@
-## CENTOS7.9 K8S1.19安装OpenEBS（helm）
+## CENTOS7.9 K8S1.19安装OpenEBS1.8.0（helm）
 
 
 [root@master-1 ~]# helm repo add openebs https://openebs.github.io/charts
