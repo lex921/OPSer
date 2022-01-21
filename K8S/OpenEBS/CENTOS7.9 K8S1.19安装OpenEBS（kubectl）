@@ -1,0 +1,32 @@
+## CENTOS7.9 K8S1.19安装OpenEBS（kubectl）
+
+[root@master-1 ~]# kubectl apply -f https://openebs.github.io/charts/openebs-operator.yaml
+
+
+[root@master-1 ~]# kubectl get pods -n openebs 
+NAME                                           READY   STATUS    RESTARTS   AGE
+openebs-localpv-provisioner-596995c774-r6dzr   1/1     Running   0          118s
+openebs-ndm-blwt4                              1/1     Running   0          118s
+openebs-ndm-fp2bq                              1/1     Running   0          118s
+openebs-ndm-operator-5f46699c-btpjc            1/1     Running   0          118s
+openebs-ndm-t2kqs                              1/1     Running   0          118s
+[root@master-1 ~]# 
+
+
+[root@master-1 ~]# kubectl get sc
+NAME               PROVISIONER        RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+openebs-device     openebs.io/local   Delete          WaitForFirstConsumer   false                  6m2s
+openebs-hostpath   openebs.io/local   Delete          WaitForFirstConsumer   false                  6m2s
+
+
+cStor
+kubectl apply -f https://openebs.github.io/charts/cstor-operator.yaml
+
+Local PV ZFS
+kubectl apply -f https://openebs.github.io/charts/zfs-operator.yaml
+
+Local PV LVM
+kubectl apply -f https://openebs.github.io/charts/lvm-operator.yaml
+
+
+
