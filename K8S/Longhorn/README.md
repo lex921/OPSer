@@ -4,8 +4,15 @@
 
 
 
-## Docs
-https://longhorn.io/docs/1.2.3/deploy/install/install-with-kubectl/
+## Documentation
+https://longhorn.io/docs/
+
+## Installation
+Longhorn can be installed on a Kubernetes cluster in several ways:
+
+- [Rancher catalog app](https://longhorn.io/docs/latest/deploy/install/install-with-rancher/)
+- [kubectl](https://longhorn.io/docs/latest/deploy/install/install-with-kubectl/)
+- [Helm](https://longhorn.io/docs/latest/deploy/install/install-with-helm/)
 
 
 ## GitHub
