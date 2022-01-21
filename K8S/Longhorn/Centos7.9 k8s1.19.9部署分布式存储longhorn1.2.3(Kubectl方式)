@@ -1,0 +1,40 @@
+[root@master-1 longhorn]# kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.2.3/deploy/longhorn.yaml
+
+
+
+[root@master-1 longhorn]# kubectl -n longhorn-system get pods --watch
+NAME                                        READY   STATUS    RESTARTS   AGE
+csi-attacher-59cb9fb769-bxrth               1/1     Running   0          10m
+csi-attacher-59cb9fb769-jb27v               1/1     Running   0          10m
+csi-attacher-59cb9fb769-jwb5n               1/1     Running   0          10m
+csi-provisioner-6d64fb7fd9-26mlw            1/1     Running   0          10m
+csi-provisioner-6d64fb7fd9-rdwfm            1/1     Running   0          10m
+csi-provisioner-6d64fb7fd9-zw8jg            1/1     Running   0          10m
+csi-resizer-654cfbf865-hwdx5                1/1     Running   0          10m
+csi-resizer-654cfbf865-r9wvj                1/1     Running   0          10m
+csi-resizer-654cfbf865-wjjf8                1/1     Running   0          10m
+csi-snapshotter-f6898b755-8vqrl             1/1     Running   0          10m
+csi-snapshotter-f6898b755-gd8ls             1/1     Running   1          10m
+csi-snapshotter-f6898b755-zj2jp             1/1     Running   0          10m
+engine-image-ei-fa2dfbf0-c8zx6              1/1     Running   0          11m
+engine-image-ei-fa2dfbf0-g4vs9              1/1     Running   0          11m
+engine-image-ei-fa2dfbf0-jc6bt              1/1     Running   0          11m
+instance-manager-e-166f423c                 1/1     Running   0          10m
+instance-manager-e-1b77ccf0                 1/1     Running   0          11m
+instance-manager-e-9bd6c86d                 1/1     Running   0          11m
+instance-manager-r-34643787                 1/1     Running   0          10m
+instance-manager-r-bd03a687                 1/1     Running   0          10m
+instance-manager-r-c8cad574                 1/1     Running   0          11m
+longhorn-csi-plugin-47xmm                   2/2     Running   0          10m
+longhorn-csi-plugin-9xsm4                   2/2     Running   0          10m
+longhorn-csi-plugin-hwp7z                   2/2     Running   0          10m
+longhorn-driver-deployer-6985c9bc7f-vmvz5   1/1     Running   0          11m
+longhorn-manager-q8sll                      1/1     Running   1          11m
+longhorn-manager-qc5mr                      1/1     Running   0          11m
+longhorn-manager-rkjxt                      1/1     Running   1          11m
+longhorn-ui-6f547c964-94sg6                 1/1     Running   0          11m
+
+
+
+丫猫官网都给写好了，直接用即可
+
