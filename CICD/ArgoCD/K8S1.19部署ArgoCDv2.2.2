@@ -1,0 +1,127 @@
+# K8S1.19部署ArgoCDv2.2.2
+
+### 创建 ns
+kubectl create namespace argocd
+### 安装 argocd
+
+
+
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+[root@master-1 argocd]# wget https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+--2022-01-24 14:30:41--  https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+Resolving raw.githubusercontent.com (raw.githubusercontent.com)... 185.199.110.133, 185.199.109.133, 185.199.108.133, ...
+Connecting to raw.githubusercontent.com (raw.githubusercontent.com)|185.199.110.133|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 168095 (164K) [text/plain]
+Saving to: ‘install.yaml’
+
+100%[===============================================================================================================================================>] 168,095      350KB/s   in 0.5s   
+
+2022-01-24 14:30:44 (350 KB/s) - ‘install.yaml’ saved [168095/168095]
+
+[root@master-1 argocd]# 
+
+
+
+[root@master-1 argocd]# kubectl create namespace argocd
+namespace/argocd created
+[root@master-1 argocd]# kubectl get ns
+NAME              STATUS   AGE
+argocd            Active   11s
+
+
+
+[root@master-1 argocd]# kubectl apply -n argocd -f install.yaml
+customresourcedefinition.apiextensions.k8s.io/applications.argoproj.io created
+customresourcedefinition.apiextensions.k8s.io/appprojects.argoproj.io created
+serviceaccount/argocd-application-controller created
+serviceaccount/argocd-dex-server created
+serviceaccount/argocd-redis created
+serviceaccount/argocd-server created
+role.rbac.authorization.k8s.io/argocd-application-controller created
+role.rbac.authorization.k8s.io/argocd-dex-server created
+role.rbac.authorization.k8s.io/argocd-server created
+clusterrole.rbac.authorization.k8s.io/argocd-application-controller created
+clusterrole.rbac.authorization.k8s.io/argocd-server created
+rolebinding.rbac.authorization.k8s.io/argocd-application-controller created
+rolebinding.rbac.authorization.k8s.io/argocd-dex-server created
+rolebinding.rbac.authorization.k8s.io/argocd-redis created
+rolebinding.rbac.authorization.k8s.io/argocd-server created
+clusterrolebinding.rbac.authorization.k8s.io/argocd-application-controller created
+clusterrolebinding.rbac.authorization.k8s.io/argocd-server created
+configmap/argocd-cm created
+configmap/argocd-cmd-params-cm created
+configmap/argocd-gpg-keys-cm created
+configmap/argocd-rbac-cm created
+configmap/argocd-ssh-known-hosts-cm created
+configmap/argocd-tls-certs-cm created
+secret/argocd-secret created
+service/argocd-dex-server created
+service/argocd-metrics created
+service/argocd-redis created
+service/argocd-repo-server created
+service/argocd-server created
+service/argocd-server-metrics created
+deployment.apps/argocd-dex-server created
+deployment.apps/argocd-redis created
+deployment.apps/argocd-repo-server created
+deployment.apps/argocd-server created
+statefulset.apps/argocd-application-controller created
+networkpolicy.networking.k8s.io/argocd-application-controller-network-policy created
+networkpolicy.networking.k8s.io/argocd-dex-server-network-policy created
+networkpolicy.networking.k8s.io/argocd-redis-network-policy created
+networkpolicy.networking.k8s.io/argocd-repo-server-network-policy created
+networkpolicy.networking.k8s.io/argocd-server-network-policy created
+[root@master-1 argocd]# 
+
+
+
+[root@master-1 argocd]# kubectl get pod -n argocd --watch
+NAME                                  READY   STATUS              RESTARTS   AGE
+argocd-application-controller-0       0/1     ContainerCreating   0          15s
+argocd-dex-server-5b6f56bb96-mn8gf    0/1     Init:0/1            0          17s
+argocd-redis-74d8c6db65-rhhz7         0/1     ContainerCreating   0          17s
+argocd-repo-server-6bc9b54dc5-lsh85   0/1     Init:0/1            0          16s
+argocd-server-748b45859b-hmltf        0/1     ContainerCreating   0          16s
+
+[root@master-1 argocd]# kubectl get pod -n argocd 
+NAME                                  READY   STATUS    RESTARTS   AGE
+argocd-application-controller-0       1/1     Running   0          2m53s
+argocd-dex-server-5b6f56bb96-mn8gf    1/1     Running   0          2m55s
+argocd-redis-74d8c6db65-rhhz7         1/1     Running   0          2m55s
+argocd-repo-server-6bc9b54dc5-lsh85   0/1     Running   0          2m54s
+argocd-server-748b45859b-hmltf        1/1     Running   0          2m54s
+
+
+
+
+[root@master-1 ~]# kubectl get svc -n argocd
+NAME                    TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                      AGE
+argocd-dex-server       ClusterIP   10.1.185.56    <none>        5556/TCP,5557/TCP,5558/TCP   38s
+argocd-metrics          ClusterIP   10.1.157.109   <none>        8082/TCP                     38s
+argocd-redis            ClusterIP   10.1.190.220   <none>        6379/TCP                     38s
+argocd-repo-server      ClusterIP   10.1.207.185   <none>        8081/TCP,8084/TCP            37s
+argocd-server           ClusterIP   10.1.12.83     <none>        80/TCP,443/TCP               37s
+argocd-server-metrics   ClusterIP   10.1.153.6     <none>        8083/TCP                     37s
+[root@master-1 ~]# 
+
+
+
+### 暴露 ui 端口供访问
+kubectl port-forward --address 0.0.0.0 svc/argocd-server -n argocd 8080:443
+
+
+### 获取登录用户 admin 密码
+[root@master-1 argocd]# kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
+W5FuR8GbNpm8apPA
+[root@master-1 argocd]# 
+
+登录
+https://172.16.201.134:8080/
+admin/W5FuR8GbNpm8apPA
+
+
+Argo CD Server Version
+Argo CD
+v2.2.2+03b17e0
