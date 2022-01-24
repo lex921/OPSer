@@ -1,5 +1,6 @@
 # ArgoCD
 
+## K8s Install ArgoCD
 https://argo-cd.readthedocs.io/en/stable/getting_started/
 
 
