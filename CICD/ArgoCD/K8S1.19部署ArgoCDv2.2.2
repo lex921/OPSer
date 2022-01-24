@@ -125,3 +125,70 @@ admin/W5FuR8GbNpm8apPA
 Argo CD Server Version
 Argo CD
 v2.2.2+03b17e0
+
+
+
+页面操作参考：
+https://blog.csdn.net/jiangmingchan/article/details/110814162
+
+
+测试nginx.yaml，需要扔github上
+[root@master-1 argocd]#
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+ name: nginx
+spec:
+ selector:
+  matchLabels:
+   app: web_server
+ replicas: 2
+ template:
+  metadata:
+   labels:
+    app: web_server
+  spec:
+   containers:
+   - name: nginx
+     image: nginx:1.7.9
+     ports:
+     - containerPort: 80
+
+
+
+[root@master-1 argocd]#  kubectl get pod -n nginx-ns
+NAME                     READY   STATUS    RESTARTS   AGE
+nginx-6fcd95b8d4-5cpqb   1/1     Running   0          6m11s
+nginx-6fcd95b8d4-vq98f   1/1     Running   0          6m11s
+
+
+
+
+
+NGINX
+PROJECT
+default
+LABELS
+ANNOTATIONS
+CLUSTER
+in-cluster (https://kubernetes.default.svc)
+NAMESPACE
+nginx-ns
+CREATED_AT
+01/24/2022 15:07:16
+REPO URL
+https://github.com/jmc6666/argocd-test.git
+TARGET REVISION
+HEAD
+PATH
+.  #路径如果是git根，填写点即可
+REVISION HISTORY LIMIT
+SYNC OPTIONS
+RETRY OPTIONS
+Retry disabled
+STATUS
+Synced To HEAD (f9cffc2)
+HEALTH
+Healthy
+IMAGES
+nginx:1.7.9
