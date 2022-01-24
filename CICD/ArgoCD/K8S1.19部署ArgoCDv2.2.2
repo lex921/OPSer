@@ -110,7 +110,7 @@ argocd-server-metrics   ClusterIP   10.1.153.6     <none>        8083/TCP       
 
 ### 暴露 ui 端口供访问
 kubectl port-forward --address 0.0.0.0 svc/argocd-server -n argocd 8080:443
-
+注：不能关闭终端
 
 ### 获取登录用户 admin 密码
 [root@master-1 argocd]# kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
