@@ -126,13 +126,7 @@ Argo CD Server Version
 Argo CD
 v2.2.2+03b17e0
 
-
-
-页面操作参考：
-https://blog.csdn.net/jiangmingchan/article/details/110814162
-
-
-测试nginx.yaml，需要扔github上
+###准备测试nginx.yaml，需要扔github上
 [root@master-1 argocd]#
 apiVersion: apps/v1
 kind: Deployment
@@ -155,7 +149,20 @@ spec:
      - containerPort: 80
 
 
+###页面操作参考：
+https://blog.csdn.net/jiangmingchan/article/details/110814162
 
+一共几步：
+添加名称
+添加库地址
+添加路径
+添加NAMESPACE
+添加in-cluster
+
+建立好以后，点同步按钮，等一会
+
+
+###然后看部署的pod 是否成功：
 [root@master-1 argocd]#  kubectl get pod -n nginx-ns
 NAME                     READY   STATUS    RESTARTS   AGE
 nginx-6fcd95b8d4-5cpqb   1/1     Running   0          6m11s
@@ -164,7 +171,7 @@ nginx-6fcd95b8d4-vq98f   1/1     Running   0          6m11s
 
 
 
-
+###页面查看信息：
 NGINX
 PROJECT
 default
@@ -192,3 +199,6 @@ HEALTH
 Healthy
 IMAGES
 nginx:1.7.9
+
+
+
