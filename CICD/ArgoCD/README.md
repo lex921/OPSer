@@ -1,4 +1,7 @@
 # ArgoCD
+开源社区在复杂应用发布管理方面逐渐开始发力，本文对其中2种针对上层应用发布管理的方案进行对比和分析，它们就是Intuit的ArgoCD和ArgoRollouts结合的方案以及Weaveworks的Flux和Flagger结合的方案。          
+ArgoCD和Flux（或者Flux CD）的主要职责都是监听Git Repository源中的应用编排变化，并与当前环境中应用运行状态进行对比，自动化同步拉取应用变更并部署到进群中。         
+ArgoRollouts和Flagger的主要职责都是执行更复杂的应用发布策略，比如蓝绿发布、金丝雀发布、AB Testing等。                
 
 ## K8s Install ArgoCD
 https://argo-cd.readthedocs.io/en/stable/getting_started/
