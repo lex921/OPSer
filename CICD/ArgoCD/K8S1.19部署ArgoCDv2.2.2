@@ -239,3 +239,34 @@ HEALTH
  Healthy
 IMAGES
 k8s.gcr.io/metrics-server/metrics-server:v0.4.1
+
+
+#####安装K8S-DASHBOARD
+K8S-DASHBOARD
+PROJECT
+default
+LABELS
+ANNOTATIONS
+CLUSTER
+in-cluster (https://kubernetes.default.svc)
+NAMESPACE
+kubernetes-dashboard     #k8s内部真实的NAMESPACE
+CREATED_AT
+01/25/2022 04:49:35
+REPO URL
+https://github.com/lex921/OPSer.git
+TARGET REVISION
+HEAD
+PATH
+K8S/k8s-dashboard/       #github路径
+REVISION HISTORY LIMIT
+SYNC OPTIONS
+RETRY OPTIONS
+Retry disabled
+STATUS
+ Synced To HEAD (dacf269)
+HEALTH
+ Healthy
+IMAGES
+kubernetesui/dashboard:v2.2.0
+kubernetesui/metrics-scraper:v1.0.6
