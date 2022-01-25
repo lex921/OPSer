@@ -211,4 +211,31 @@ Healthy
 IMAGES
 nginx:1.7.9
 
-
+#####安装k8s-metrics
+K8S-METRICS-SERVER
+PROJECT
+default
+LABELS
+ANNOTATIONS
+CLUSTER
+in-cluster (https://kubernetes.default.svc)
+NAMESPACE
+kube-system             #k8s内部真实的NAMESPACE
+CREATED_AT
+01/25/2022 05:02:01
+REPO URL
+https://github.com/lex921/OPSer.git
+TARGET REVISION
+HEAD
+PATH
+K8S/k8s-metrics-server/  #github路径
+REVISION HISTORY LIMIT
+SYNC OPTIONS
+RETRY OPTIONS
+Retry disabled
+STATUS
+ Synced To HEAD (dacf269)
+HEALTH
+ Healthy
+IMAGES
+k8s.gcr.io/metrics-server/metrics-server:v0.4.1
