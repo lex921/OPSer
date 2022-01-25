@@ -8,11 +8,15 @@ ArgoRollouts和Flagger的主要职责都是执行更复杂的应用发布策略�
 
 
 ### 创建 ns
-[root@master-1 argocd]#kubectl create namespace argocd
+[root@master-1 argocd]# kubectl create namespace argocd
+namespace/argocd created
+[root@master-1 argocd]# kubectl get ns
+NAME              STATUS   AGE
+argocd            Active   11s
+
+
+
 ### 安装 argocd
-
-
-
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
 [root@master-1 argocd]# wget https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
@@ -30,15 +34,7 @@ Saving to: ‘install.yaml’
 [root@master-1 argocd]# 
 
 
-
-[root@master-1 argocd]# kubectl create namespace argocd
-namespace/argocd created
-[root@master-1 argocd]# kubectl get ns
-NAME              STATUS   AGE
-argocd            Active   11s
-
-
-
+安装：
 [root@master-1 argocd]# kubectl apply -n argocd -f install.yaml
 customresourcedefinition.apiextensions.k8s.io/applications.argoproj.io created
 customresourcedefinition.apiextensions.k8s.io/appprojects.argoproj.io created
@@ -83,7 +79,7 @@ networkpolicy.networking.k8s.io/argocd-server-network-policy created
 [root@master-1 argocd]# 
 
 
-
+查看pod
 [root@master-1 argocd]# kubectl get pod -n argocd --watch
 NAME                                  READY   STATUS              RESTARTS   AGE
 argocd-application-controller-0       0/1     ContainerCreating   0          15s
@@ -102,7 +98,7 @@ argocd-server-748b45859b-hmltf        1/1     Running   0          2m54s
 
 
 
-
+查看服务
 [root@master-1 ~]# kubectl get svc -n argocd
 NAME                    TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)                      AGE
 argocd-dex-server       ClusterIP   10.1.185.56    <none>        5556/TCP,5557/TCP,5558/TCP   38s
