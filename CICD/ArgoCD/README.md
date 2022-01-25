@@ -10,6 +10,8 @@ ArgoRollouts和Flagger的主要职责都是执行更复杂的应用发布策略�
 ## K8s Install ArgoCD
 https://argo-cd.readthedocs.io/en/stable/getting_started/
 
+## 官方demo
+https://cd.apps.argoproj.io/applications
 
 ## GitHub
 https://github.com/argoproj/argo-cd/
