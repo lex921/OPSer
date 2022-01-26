@@ -1330,3 +1330,22 @@ longhorn-manager-gxhpn                      1/1     Running   1          21m    
 longhorn-manager-pkmsz                      1/1     Running   0          21m     10.244.1.16   node-1     <none>           <none>
 longhorn-ui-9fdb94f9-4wn4p                  1/1     Running   0          21m     10.244.1.17   node-1     <none>           <none>
 [root@master-1 ~]# 
+
+
+[root@master-1 ~]#  kubectl -n longhorn-system get svc -o wide
+NAME                       TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)     AGE   SELECTOR
+csi-attacher               ClusterIP   10.1.3.2       <none>        12345/TCP   32m   app=csi-attacher
+csi-provisioner            ClusterIP   10.1.253.115   <none>        12345/TCP   32m   app=csi-provisioner
+csi-resizer                ClusterIP   10.1.150.139   <none>        12345/TCP   32m   app=csi-resizer
+csi-snapshotter            ClusterIP   10.1.249.158   <none>        12345/TCP   32m   app=csi-snapshotter
+longhorn-backend           ClusterIP   10.1.225.181   <none>        9500/TCP    35m   app=longhorn-manager
+longhorn-engine-manager    ClusterIP   None           <none>        <none>      35m   longhorn.io/component=instance-manager,longhorn.io/instance-manager-type=engine
+longhorn-frontend          ClusterIP   10.1.193.89    <none>        80/TCP      35m   app=longhorn-ui
+longhorn-replica-manager   ClusterIP   None           <none>        <none>      35m   longhorn.io/component=instance-manager,longhorn.io/instance-manager-type=replica
+[root@master-1 ~]# 
+
+
+
+
+
+
