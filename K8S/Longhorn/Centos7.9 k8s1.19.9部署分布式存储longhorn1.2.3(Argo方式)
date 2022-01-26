@@ -1,7 +1,7 @@
 Centos7.9 k8s1.19.9部署分布式存储longhorn1.2.3(Argo方式)
 
 
-#####安装LONGHORN
+
 [root@master-1 ~]# kubectl create namespace longhorn-system
 namespace/argocd created
 
