@@ -1,0 +1,78 @@
+Centos7.9 k8s1.19.9部署分布式存储longhorn1.2.3(Argo方式)
+
+
+#####安装LONGHORN
+[root@master-1 ~]# kubectl create namespace longhorn-system
+namespace/argocd created
+
+[root@master-1 ~]# kubectl get ns
+NAME              STATUS   AGE
+longhorn-system        Active   6m46s
+
+[root@master-1 ~]# kubectl get pod -n longhorn-system --watch
+
+
+
+LONGHORN
+PROJECT
+default
+LABELS
+ANNOTATIONS
+CLUSTER
+in-cluster (https://kubernetes.default.svc)
+NAMESPACE
+longhorn-system
+CREATED_AT
+01/25/2022 19:25:13
+REPO URL
+https://github.com/lex921/OPSer.git
+TARGET REVISION
+HEAD
+PATH
+K8S/Longhorn/
+REVISION HISTORY LIMIT
+SYNC OPTIONS
+RETRY OPTIONS
+Retry disabled
+STATUS
+ Synced To HEAD (637f496)
+HEALTH
+ Healthy
+IMAGES
+longhornio/longhorn-manager:v1.2.3
+longhornio/longhorn-ui:v1.2.3
+
+
+
+[root@master-1 ~]# kubectl get pod -n longhorn-system -o wide 
+NAME                                        READY   STATUS    RESTARTS   AGE     IP            NODE       NOMINATED NODE   READINESS GATES
+csi-attacher-f948665c5-bt6cc                1/1     Running   0          18m     10.244.1.21   node-1     <none>           <none>
+csi-attacher-f948665c5-dmfhj                1/1     Running   0          18m     10.244.1.22   node-1     <none>           <none>
+csi-attacher-f948665c5-vp9hc                1/1     Running   0          18m     10.244.2.19   node-2     <none>           <none>
+csi-provisioner-7877cd48c9-khj2l            1/1     Running   0          18m     10.244.2.20   node-2     <none>           <none>
+csi-provisioner-7877cd48c9-q7g4s            1/1     Running   0          18m     10.244.2.25   node-2     <none>           <none>
+csi-provisioner-7877cd48c9-z8786            1/1     Running   0          18m     10.244.1.23   node-1     <none>           <none>
+csi-resizer-5f549cd7-8q8zb                  1/1     Running   0          18m     10.244.1.25   node-1     <none>           <none>
+csi-resizer-5f549cd7-hn7qb                  1/1     Running   0          18m     10.244.2.21   node-2     <none>           <none>
+csi-resizer-5f549cd7-lftkq                  1/1     Running   0          18m     10.244.2.23   node-2     <none>           <none>
+csi-snapshotter-645cf6bd97-bhlb8            1/1     Running   0          18m     10.244.2.22   node-2     <none>           <none>
+csi-snapshotter-645cf6bd97-hn8bc            1/1     Running   0          18m     10.244.1.26   node-1     <none>           <none>
+csi-snapshotter-645cf6bd97-qgvdn            1/1     Running   0          18m     10.244.1.27   node-1     <none>           <none>
+engine-image-ei-fa2dfbf0-4cvfs              1/1     Running   0          19m     10.244.2.15   node-2     <none>           <none>
+engine-image-ei-fa2dfbf0-t9wtj              1/1     Running   0          9m22s   10.244.0.9    master-1   <none>           <none>
+engine-image-ei-fa2dfbf0-v89sx              1/1     Running   0          19m     10.244.1.18   node-1     <none>           <none>
+instance-manager-e-5f12ea8a                 1/1     Running   0          19m     10.244.1.19   node-1     <none>           <none>
+instance-manager-e-f870a95c                 1/1     Running   0          19m     10.244.2.16   node-2     <none>           <none>
+instance-manager-e-f9751f9a                 1/1     Running   0          7m28s   10.244.0.11   master-1   <none>           <none>
+instance-manager-r-079acda2                 1/1     Running   0          18m     10.244.2.17   node-2     <none>           <none>
+instance-manager-r-95101dfa                 1/1     Running   0          7m28s   10.244.0.12   master-1   <none>           <none>
+instance-manager-r-ccdf2871                 1/1     Running   0          19m     10.244.1.20   node-1     <none>           <none>
+longhorn-csi-plugin-29tvj                   2/2     Running   0          18m     10.244.1.24   node-1     <none>           <none>
+longhorn-csi-plugin-564tq                   2/2     Running   0          9m22s   10.244.0.8    master-1   <none>           <none>
+longhorn-csi-plugin-nsz6n                   2/2     Running   0          18m     10.244.2.24   node-2     <none>           <none>
+longhorn-driver-deployer-784546d78d-xdxv9   1/1     Running   0          21m     10.244.2.14   node-2     <none>           <none>
+longhorn-manager-8jxp7                      1/1     Running   0          9m22s   10.244.0.10   master-1   <none>           <none>
+longhorn-manager-gxhpn                      1/1     Running   1          21m     10.244.2.13   node-2     <none>           <none>
+longhorn-manager-pkmsz                      1/1     Running   0          21m     10.244.1.16   node-1     <none>           <none>
+longhorn-ui-9fdb94f9-4wn4p                  1/1     Running   0          21m     10.244.1.17   node-1     <none>           <none>
+[root@master-1 ~]# 
