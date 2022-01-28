@@ -272,4 +272,52 @@ kubeadm join 172.16.201.134:6443 --token oihci4.4awdsauazndte0i5 \
 
 --pod-network-cidr指定 Pod 网络的范围。Kubernetes 支持多种网络方案，而且不同网络方案对  --pod-network-cidr有自己的要求，这里设置为192.168.1.0/24 是因为我们将使用 flannel 网络方案，必须设置成这个 CIDR。
 
+[root@master-1 ~]# kubectl get nodes
+NAME       STATUS     ROLES                  AGE     VERSION
+master-1   NotReady   control-plane,master   2m29s   v1.23.3
+node-1     NotReady   <none>                 37s     v1.23.3
+node-2     NotReady   <none>                 25s     v1.23.3
+
+(1)Flannel
+wget https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+kubectl apply -f  kube-flannel.yml 
+
+如需重新安装需要先删除所创建的网络配置
+kubectl delete -f  kube-flannel.yml
+
+
+[root@master-1 ~]#  kubectl get pods -n kube-system --watch
+NAME                               READY   STATUS              RESTARTS       AGE
+coredns-6d8c4cb4d-4tqzr            0/1     Running             0              8m34s
+coredns-6d8c4cb4d-k78jq            0/1     Running             0              8m34s
+etcd-master-1                      1/1     Running             0              11m
+kube-apiserver-master-1            1/1     Running             0              11m
+kube-controller-manager-master-1   1/1     Running             0              11m
+kube-flannel-ds-b7rvf              1/1     Running             0              8m34s
+kube-flannel-ds-jxcnr              0/1     Running             0              8m34s
+kube-flannel-ds-tll4d              0/1     Running             0              8m34s
+kube-proxy-6wvbm                   1/1     Running             0              9m40s
+kube-proxy-ddlrt                   1/1     Running             0              9m52s
+kube-proxy-wqwsb                   1/1     Running             0              11m
+kube-scheduler-master-1            1/1     Running             0              11m
+
+
+(2)Calico (好用)
+kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+
+[root@master-1 ~]# kubectl get pods -n kube-system --watch
+NAME                                       READY   STATUS    RESTARTS   AGE
+calico-kube-controllers-85b5b5888d-sw472   1/1     Running   0          3m50s
+calico-node-kdv9l                          1/1     Running   0          3m50s
+calico-node-l7gkp                          1/1     Running   0          3m50s
+calico-node-vkhh7                          1/1     Running   0          3m50s
+coredns-6d8c4cb4d-4tqzr                    1/1     Running   0          59m
+coredns-6d8c4cb4d-k78jq                    1/1     Running   0          59m
+etcd-master-1                              1/1     Running   2          59m
+kube-apiserver-master-1                    1/1     Running   2          59m
+kube-controller-manager-master-1           1/1     Running   2          59m
+kube-proxy-6wvbm                           1/1     Running   2          57m
+kube-proxy-ddlrt                           1/1     Running   2          57m
+kube-proxy-wqwsb                           1/1     Running   2          59m
+kube-scheduler-master-1                    1/1     Running   2          59m
 
