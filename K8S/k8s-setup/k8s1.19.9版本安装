@@ -1,6 +1,6 @@
 #centos7.9系统使用Kubeadm安装部署kubernetes1.19.9
 
-# 二、安装k8s           
+       
            
            
 k8s所有版本的github库：           
