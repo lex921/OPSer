@@ -321,3 +321,39 @@ kube-proxy-ddlrt                           1/1     Running   2          57m
 kube-proxy-wqwsb                           1/1     Running   2          59m
 kube-scheduler-master-1                    1/1     Running   2          59m
 
+
+[root@master-1 ~]# kubectl  get node
+NAME       STATUS   ROLES                  AGE     VERSION
+master-1   Ready    control-plane,master   11m     v1.23.3
+node-1     Ready    <none>                 10m     v1.23.3
+node-2     Ready    <none>                 9m48s   v1.23.3
+
+
+[root@master-1 ~]# kubectl get cs
+Warning: v1 ComponentStatus is deprecated in v1.19+
+NAME                 STATUS    MESSAGE                         ERROR
+scheduler            Healthy   ok                              
+controller-manager   Healthy   ok                              
+etcd-0               Healthy   {"health":"true","reason":""}   
+
+
+
+### 四、集群操作
+1、移除NODE节点的方法
+（1）、先将节点设置为维护模式(host1是节点名称)
+kubectl drain node1--delete-local-data --force --ignore-daemonsets
+ 此时node状态为Ready,SchedulingDisabled
+
+（2）、然后删除节点
+kubectl delete node node1
+
+
+2、再想添加进来这个node，需要执行如下操作
+（1）、 systemctl stop kubelet
+（2）、 rm -rf /etc/kubernetes/*
+（3）、 systemctl start kubelet
+（4）、kubeadm join 172.16.201.134:6443 --token oihci4.4awdsauazndte0i5 \
+        --discovery-token-ca-cert-hash sha256:166c3e79b8c1840a7ff5b6ff21c0be388e21e9f7b410ab29822073807e0bfd52
+
+
+
