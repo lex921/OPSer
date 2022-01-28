@@ -1,0 +1,275 @@
+#centos7.9系统使用Kubeadm安装部署kubernetes1.23.3
+
+
+关闭防火墙
+systemctl stop firewalld
+
+设置开机不启动
+systemctl disable firewalld
+
+关闭selinux
+vi /etc/selinux/config
+SELINUX=disabled
+重启系统
+
+
+关闭swap分区
+vi  /etc/fstab
+ #/dev/mapper/centos-swap swap                    swap    defaults        0 0
+
+
+
+创建/etc/sysctl.d/k8s.conf文件，添加如下内容
+cat <<EOF >/etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+vm.swappiness=0
+EOF
+
+执行命令使修改生效
+modprobe br_netfilter
+sysctl -p /etc/sysctl.d/k8s.conf
+
+
+主机名：
+[root@node-1 ~]# vim /etc/sysconfig/network-scripts/ifcfg-ens33 
+修改IP
+注掉UUID=
+
+echo '
+172.16.201.134  master-1
+172.16.201.135  node-1
+172.16.201.136  node-2' >> /etc/hosts
+
+hostnamectl set-hostname master-1
+hostnamectl set-hostname node-1
+hostnamectl set-hostname node-2
+
+   
+分别复制key到master   
+[root@node-1 ~]# ssh-keygen
+[root@node-1 .ssh]# ssh-copy-id root@172.16.201.134  
+[root@node-2 .ssh]# ssh-keygen   
+[root@node-2 .ssh]# ssh-copy-id root@172.16.201.134            
+
+分别复制key到node-1、node-2    
+[root@master-1 .ssh]# ssh-keygen  
+[root@master-1 .ssh]# ssh-copy-id root@172.16.201.135
+[root@master-1 .ssh]# ssh-copy-id root@172.16.201.136
+
+ssh-copy-id root@172.16.201.134;ssh-copy-id root@172.16.201.135;ssh-copy-id root@172.16.201.136
+ssh-copy-id root@172.16.201.135
+ssh-copy-id root@172.16.201.136
+
+ssh-copy-id master-1;ssh-copy-id node-1;ssh-copy-id node-2
+ssh-copy-id node-1
+ssh-copy-id node-2
+
+ssh master-1
+ssh node-1
+ssh node-2
+
+
+kube-proxy开启ipvs的前置条件
+cat > /etc/sysconfig/modules/ipvs.modules <<EOF
+
+####!/bin/bash
+
+modprobe -- ip_vs
+modprobe -- ip_vs_rr
+modprobe -- ip_vs_wrr
+modprobe -- ip_vs_sh
+modprobe -- nf_conntrack_ipv4
+EOF
+
+加载模块
+chmod 755 /etc/sysconfig/modules/ipvs.modules && bash /etc/sysconfig/modules/ipvs.modules && lsmod | grep -e ip_vs -e nf_conntrack_ipv4
+
+安装了ipset软件包,管理工具ipvsadm
+yum install ipset ipvsadm -y
+
+
+设置docker的Cgroup Driver
+cat <<EOF >/etc/docker/daemon.json
+
+{
+"exec-opts": ["native.cgroupdriver=systemd"]
+}
+
+EOF
+
+
+systemctl restart docker && systemctl enable docker
+
+
+
+
+
+vim /etc/yum.repos.d/kubernetes.repo
+
+[kubernetes]
+name=Kubernetes
+baseurl=https://mirrors.aliyun.com/kubernetes/yum/repos/kubernetes-el7-x86_64/
+gpgcheck=1
+enable=1
+repo_gpgcheck=1
+gpgkey=https://mirrors.aliyun.com/kubernetes/yum/doc/yum-key.gpg
+https://mirrors.aliyun.com/kubernetes/yum/doc/rpm-package-key.gpg
+
+
+
+yum makecache fast && yum install  kubelet  kubeadm kubectl rpcbind nfs-utils lrzsz -y --nogpgcheck
+systemctl enable kubelet;systemctl status kubelet
+
+cat <<EOF >/etc/sysconfig/kubelet
+KUBELET_CGROUP_ARGS="--cgroup-driver=systemd"
+KUBE_PROXY_MODE="ipvs"
+EOF　
+
+
+[root@master-1 ~]# kubeadm config images list
+k8s.gcr.io/kube-apiserver:v1.23.3
+k8s.gcr.io/kube-controller-manager:v1.23.3
+k8s.gcr.io/kube-scheduler:v1.23.3
+k8s.gcr.io/kube-proxy:v1.23.3
+k8s.gcr.io/pause:3.6
+k8s.gcr.io/etcd:3.5.1-0
+k8s.gcr.io/coredns/coredns:v1.8.6
+
+
+docker pull registry.aliyuncs.com/google_containers/kube-apiserver:v1.23.3
+docker pull registry.aliyuncs.com/google_containers/kube-controller-manager:v1.23.3
+docker pull registry.aliyuncs.com/google_containers/kube-scheduler:v1.23.3
+docker pull registry.aliyuncs.com/google_containers/kube-proxy:v1.23.3
+docker pull registry.aliyuncs.com/google_containers/pause:3.6
+docker pull registry.aliyuncs.com/google_containers/etcd:3.5.1-0
+docker pull registry.aliyuncs.com/google_containers/coredns:v1.8.6
+
+
+docker images|grep google_containers|wc -l
+7
+
+
+docker tag registry.aliyuncs.com/google_containers/kube-apiserver:v1.23.3 k8s.gcr.io/kube-apiserver:v1.23.3
+docker tag registry.aliyuncs.com/google_containers/kube-controller-manager:v1.23.3 k8s.gcr.io/kube-controller-manager:v1.23.3
+docker tag registry.aliyuncs.com/google_containers/kube-scheduler:v1.23.3 k8s.gcr.io/kube-scheduler:v1.23.3
+docker tag registry.aliyuncs.com/google_containers/kube-proxy:v1.23.3  k8s.gcr.io/kube-proxy:v1.23.3
+docker tag registry.aliyuncs.com/google_containers/pause:3.6  k8s.gcr.io/pause:3.6
+docker tag registry.aliyuncs.com/google_containers/etcd:3.5.1-0  k8s.gcr.io/etcd:3.5.1-0
+docker tag registry.aliyuncs.com/google_containers/coredns:v1.8.6  k8s.gcr.io/coredns:v1.8.6
+
+docker rmi registry.aliyuncs.com/google_containers/kube-apiserver:v1.23.3
+docker rmi registry.aliyuncs.com/google_containers/kube-controller-manager:v1.23.3
+docker rmi registry.aliyuncs.com/google_containers/kube-scheduler:v1.23.3
+docker rmi registry.aliyuncs.com/google_containers/kube-proxy:v1.23.3
+docker rmi registry.aliyuncs.com/google_containers/pause:3.6
+docker rmi registry.aliyuncs.com/google_containers/etcd:3.5.1-0
+docker rmi registry.aliyuncs.com/google_containers/coredns:v1.8.6
+
+docker images
+
+
+
+kubeadm init \
+--apiserver-advertise-address=172.16.201.134 \
+--image-repository registry.aliyuncs.com/google_containers \
+--kubernetes-version v1.23.3 \
+--service-cidr=10.10.10.0/24 \
+--pod-network-cidr=192.168.1.0/24
+
+
+kubeadm reset
+
+
+[root@master-1 ~]# kubeadm init \
+> --apiserver-advertise-address=172.16.201.134 \
+> --image-repository registry.aliyuncs.com/google_containers \
+> --kubernetes-version v1.23.3 \
+> --service-cidr=10.10.10.0/24 \
+> --pod-network-cidr=192.168.1.0/24
+[init] Using Kubernetes version: v1.23.3
+[preflight] Running pre-flight checks
+[preflight] Pulling images required for setting up a Kubernetes cluster
+[preflight] This might take a minute or two, depending on the speed of your internet connection
+[preflight] You can also perform this action in beforehand using 'kubeadm config images pull'
+[certs] Using certificateDir folder "/etc/kubernetes/pki"
+[certs] Generating "ca" certificate and key
+[certs] Generating "apiserver" certificate and key
+[certs] apiserver serving cert is signed for DNS names [kubernetes kubernetes.default kubernetes.default.svc kubernetes.default.svc.cluster.local master-1] and IPs [10.10.10.1 172.16.201.134]
+[certs] Generating "apiserver-kubelet-client" certificate and key
+[certs] Generating "front-proxy-ca" certificate and key
+[certs] Generating "front-proxy-client" certificate and key
+[certs] Generating "etcd/ca" certificate and key
+[certs] Generating "etcd/server" certificate and key
+[certs] etcd/server serving cert is signed for DNS names [localhost master-1] and IPs [172.16.201.134 127.0.0.1 ::1]
+[certs] Generating "etcd/peer" certificate and key
+[certs] etcd/peer serving cert is signed for DNS names [localhost master-1] and IPs [172.16.201.134 127.0.0.1 ::1]
+[certs] Generating "etcd/healthcheck-client" certificate and key
+[certs] Generating "apiserver-etcd-client" certificate and key
+[certs] Generating "sa" key and public key
+[kubeconfig] Using kubeconfig folder "/etc/kubernetes"
+[kubeconfig] Writing "admin.conf" kubeconfig file
+[kubeconfig] Writing "kubelet.conf" kubeconfig file
+[kubeconfig] Writing "controller-manager.conf" kubeconfig file
+[kubeconfig] Writing "scheduler.conf" kubeconfig file
+[kubelet-start] Writing kubelet environment file with flags to file "/var/lib/kubelet/kubeadm-flags.env"
+[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"
+[kubelet-start] Starting the kubelet
+[control-plane] Using manifest folder "/etc/kubernetes/manifests"
+[control-plane] Creating static Pod manifest for "kube-apiserver"
+[control-plane] Creating static Pod manifest for "kube-controller-manager"
+[control-plane] Creating static Pod manifest for "kube-scheduler"
+[etcd] Creating static Pod manifest for local etcd in "/etc/kubernetes/manifests"
+[wait-control-plane] Waiting for the kubelet to boot up the control plane as static Pods from directory "/etc/kubernetes/manifests". This can take up to 4m0s
+[apiclient] All control plane components are healthy after 8.006194 seconds
+[upload-config] Storing the configuration used in ConfigMap "kubeadm-config" in the "kube-system" Namespace
+[kubelet] Creating a ConfigMap "kubelet-config-1.23" in namespace kube-system with the configuration for the kubelets in the cluster
+NOTE: The "kubelet-config-1.23" naming of the kubelet ConfigMap is deprecated. Once the UnversionedKubeletConfigMap feature gate graduates to Beta the default name will become just "kubelet-config". Kubeadm upgrade will handle this transition transparently.
+[upload-certs] Skipping phase. Please see --upload-certs
+[mark-control-plane] Marking the node master-1 as control-plane by adding the labels: [node-role.kubernetes.io/master(deprecated) node-role.kubernetes.io/control-plane node.kubernetes.io/exclude-from-external-load-balancers]
+[mark-control-plane] Marking the node master-1 as control-plane by adding the taints [node-role.kubernetes.io/master:NoSchedule]
+[bootstrap-token] Using token: oihci4.4awdsauazndte0i5
+[bootstrap-token] Configuring bootstrap tokens, cluster-info ConfigMap, RBAC Roles
+[bootstrap-token] configured RBAC rules to allow Node Bootstrap tokens to get nodes
+[bootstrap-token] configured RBAC rules to allow Node Bootstrap tokens to post CSRs in order for nodes to get long term certificate credentials
+[bootstrap-token] configured RBAC rules to allow the csrapprover controller automatically approve CSRs from a Node Bootstrap Token
+[bootstrap-token] configured RBAC rules to allow certificate rotation for all node client certificates in the cluster
+[bootstrap-token] Creating the "cluster-info" ConfigMap in the "kube-public" namespace
+[kubelet-finalize] Updating "/etc/kubernetes/kubelet.conf" to point to a rotatable kubelet client certificate and key
+[addons] Applied essential addon: CoreDNS
+[addons] Applied essential addon: kube-proxy
+
+Your Kubernetes control-plane has initialized successfully!
+
+To start using your cluster, you need to run the following as a regular user:
+
+  mkdir -p $HOME/.kube
+  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+Alternatively, if you are the root user, you can run:
+
+  export KUBECONFIG=/etc/kubernetes/admin.conf
+
+You should now deploy a pod network to the cluster.
+Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+
+Then you can join any number of worker nodes by running the following on each as root:
+
+kubeadm join 172.16.201.134:6443 --token oihci4.4awdsauazndte0i5 \
+        --discovery-token-ca-cert-hash sha256:166c3e79b8c1840a7ff5b6ff21c0be388e21e9f7b410ab29822073807e0bfd52 
+
+
+
+--apiserver-advertise-address：master主机IP地址
+--image-repository string：这个用于指定从什么位置来拉取镜像（1.13版本才有的），默认值是k8s.gcr.io，我们将其指定为国内镜像地址：registry.aliyuncs.com/google_containers
+
+--kubernetes-version string：指定kubenets版本号，默认值是stable-1，会导致从https://dl.k8s.io/release/stable-1.txt下载最新的版本号，我们可以将其指定为固定版本（最新版：V1.23.1截至我发版前，这个可以不用指定）来跳过网络请求。
+
+--apiserver-advertise-address 指明用 Master 的哪个 interface 与 Cluster 的其他节点通信。如果 Master 有多个 interface，建议明确指定，如果不指定，kubeadm 会自动选择有默认网关的 interface。
+
+--pod-network-cidr指定 Pod 网络的范围。Kubernetes 支持多种网络方案，而且不同网络方案对  --pod-network-cidr有自己的要求，这里设置为192.168.1.0/24 是因为我们将使用 flannel 网络方案，必须设置成这个 CIDR。
+
+
