@@ -336,7 +336,17 @@ scheduler            Healthy   ok
 controller-manager   Healthy   ok                              
 etcd-0               Healthy   {"health":"true","reason":""}   
 
+修改ROLES
+kubectl label node node-1 node-role.kubernetes.io/node=
+node/node-1 labeled
+kubectl label node node-2 node-role.kubernetes.io/node=
+node/node-2 labeled
 
+[root@master-1 ~]# kubectl get node 
+NAME       STATUS   ROLES                  AGE   VERSION
+master-1   Ready    control-plane,master   74m   v1.23.3
+node-1     Ready    node                   72m   v1.23.3
+node-2     Ready    node                   72m   v1.23.3
 
 ### 四、集群操作
 1、移除NODE节点的方法
