@@ -10,11 +10,12 @@ systemctl disable firewalld
 关闭selinux
 vi /etc/selinux/config
 SELINUX=disabled
-重启系统
+
 
 
 关闭swap分区
 vi  /etc/fstab
+注释掉
  #/dev/mapper/centos-swap swap                    swap    defaults        0 0
 
 
@@ -88,6 +89,10 @@ chmod 755 /etc/sysconfig/modules/ipvs.modules && bash /etc/sysconfig/modules/ipv
 
 安装了ipset软件包,管理工具ipvsadm
 yum install ipset ipvsadm -y
+
+
+### 重启系统
+
 
 
 设置docker的Cgroup Driver
