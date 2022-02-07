@@ -359,9 +359,9 @@ kubectl delete node node1
 
 
 2、再想添加进来这个node，需要执行如下操作
-（1）、 systemctl stop kubelet
-（2）、 rm -rf /etc/kubernetes/*
-（3）、 systemctl start kubelet
+（1）、systemctl stop kubelet
+（2）、rm -rf /etc/kubernetes/*
+（3）、systemctl start kubelet
 （4）、kubeadm join 172.16.201.134:6443 --token oihci4.4awdsauazndte0i5 \
         --discovery-token-ca-cert-hash sha256:166c3e79b8c1840a7ff5b6ff21c0be388e21e9f7b410ab29822073807e0bfd52
 
