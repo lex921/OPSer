@@ -1,13 +1,13 @@
 # Kubesphere Openshift Rancher KubeOperator相关  
 
-## openshift    
+## Openshift    
 https://www.redhat.com/en/technologies/cloud-computing/openshift   
 https://docs.openshift.com/           
 
-## kubesphere         
+## Kubesphere         
 https://kubesphere.com.cn/        
 
-## rancher
+## Rancher
 https://github.com/rancher/rancher#installation         
 https://rancher.com/docs/rancher/v1.6/zh/          
 
